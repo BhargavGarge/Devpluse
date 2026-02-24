@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ArrowRight, BadgeCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DashboardMockup } from "./DashboardMockup";
+import Link from "next/link";
 
 export function HeroSection() {
     return (
@@ -49,9 +50,11 @@ export function HeroSection() {
                         <Button size="lg" className="bg-primary hover:bg-primary/90 text-white text-lg font-bold px-8 py-6 rounded-xl hover:shadow-[0_0_30px_rgba(91,43,238,0.5)] transition-all flex items-center justify-center gap-2">
                             Get Started Free <ArrowRight className="w-5 h-5" />
                         </Button>
-                        <Button size="lg" variant="outline" className="glass-card bg-transparent text-lg font-bold px-8 py-6 rounded-xl hover:bg-white/5 transition-all flex items-center justify-center gap-2 border-white/10 text-white">
-                            View Demo
-                        </Button>
+                        <Link href="/demo">
+                            <Button size="lg" variant="outline" className="glass-card bg-transparent text-lg font-bold px-8 py-6 rounded-xl hover:bg-white/5 transition-all flex items-center justify-center gap-2 border-white/10 text-white">
+                                View Demo
+                            </Button>
+                        </Link>
                     </div>
 
                     <div className="flex items-center gap-6 pt-4 text-slate-500">

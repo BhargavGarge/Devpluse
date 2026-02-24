@@ -1,6 +1,6 @@
 "use client";
 
-import { LineChart, ArrowRight, LayoutDashboard } from "lucide-react";
+import { LineChart, ArrowRight, LayoutDashboard, GitPullRequest } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";

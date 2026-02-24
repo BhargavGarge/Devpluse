@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Bolt, Dashboard as DashboardIcon, People, Settings, Code, Search, Notifications, Link as LinkIcon, Visibility, Help, Shield } from "@mui/icons-material";
-import { Activity, LayoutDashboard, Database, PlusCircle, Users, Settings as SettingsIcon, BarChart2, Search as SearchIcon, Bell, Link2Off, Link2, Eye, HelpCircle, ShieldCheck, ArrowRight } from "lucide-react";
+import { Activity, LayoutDashboard, Database, PlusCircle, Users, Settings as SettingsIcon, BarChart2, Search as SearchIcon, Bell, Link2Off, Link2, Eye, HelpCircle, ShieldCheck, ArrowRight, GitPullRequest } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/LogoutButton";
@@ -46,6 +46,10 @@ export default async function DashboardEmptyState() {
                     <Link href="/dashboard/reports" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
                         <BarChart2 className="w-5 h-5" />
                         <span className="font-medium">Reports</span>
+                    </Link>
+                    <Link href="/dashboard/pr-insights" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
+                        <GitPullRequest className="w-5 h-5" />
+                        <span className="font-medium">PR Insights</span>
                     </Link>
                     <Link href="#" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
                         <Users className="w-5 h-5" />
