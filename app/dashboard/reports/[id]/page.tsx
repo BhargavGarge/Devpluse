@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation";
 import { Database, ArrowLeft, Activity, Star, Calendar, CheckCircle, XCircle, Code, FileText, GitCommit, Settings, AlertTriangle, TrendingUp, Lightbulb, Zap, ShieldAlert, GitBranch, Target } from "lucide-react";
 import Link from "next/link";
+import ReportStructuredUI from "@/components/ReportStructuredUI";
+import PRReviewHealth from "@/components/pr-insights/PRReviewHealth";
 
 function MetricCard({ label, value, icon }: { label: string, value: any, icon: React.ReactNode }) {
     return (
@@ -40,7 +42,7 @@ id,
     score_breakdown,
     metrics_snapshot,
     created_at,
-    repositories(name, full_name)
+    repositories(id, name, full_name)
         `)
         .eq("id", id)
         .single() as any;
@@ -53,6 +55,30 @@ id,
                 <Link href="/dashboard/reports" className="text-primary hover:underline">Return to Reports</Link>
             </div>
         )
+    }
+
+    const repositoryId = Array.isArray(report.repositories) ? report.repositories[0]?.id : report.repositories?.id;
+    let initialPRMetrics = null;
+    if (repositoryId) {
+        const { data: prData } = await supabase
+            .from("pull_request_metrics")
+            .select('*')
+            .eq("repository_id", repositoryId)
+            .single();
+
+        if (prData) {
+            initialPRMetrics = {
+                id: prData.id,
+                repositoryId: prData.repository_id,
+                averagePRSize: prData.average_pr_size,
+                averageReviewTime: prData.average_review_time,
+                unreviewedRatio: prData.unreviewed_ratio,
+                largePRRatio: prData.large_pr_ratio,
+                healthScore: prData.health_score,
+                riskLevel: prData.risk_level,
+                analyzedAt: prData.analyzed_at
+            };
+        }
     }
 
     return (
@@ -135,7 +161,7 @@ id,
                             </div>
                             <div>
                                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Technical Due Diligence Report</h2>
-                                <p className="text-sm text-slate-500 font-medium">AI-generated architectural insights and roadmap</p>
+                                <p className="text-sm text-slate-500 font-medium">Interactive Risk Engine and architectural insights</p>
                             </div>
                         </div>
 
@@ -148,182 +174,73 @@ id,
                             }
 
                             if (parsedSummary) {
-                                // NEW FORMAT HANDLING (OpenAI generation)
-                                if (parsedSummary.executiveOverview || parsedSummary.summary || parsedSummary.architecturalInsights || parsedSummary.codeQuality) {
-                                    return (
-                                        <div className="space-y-10">
-                                            {/* Executive Overview */}
-                                            {(parsedSummary.executiveOverview || parsedSummary.summary) && (
-                                                <div className="relative overflow-hidden rounded-3xl bg-slate-900 dark:bg-[#0a0a0c] border border-slate-800 dark:border-[#2d2d35] shadow-2xl">
-                                                    <div className="absolute top-0 right-0 p-32 bg-primary/20 rounded-full blur-[100px] pointer-events-none" />
-                                                    <div className="absolute bottom-0 left-0 p-32 bg-purple-600/20 rounded-full blur-[100px] pointer-events-none" />
+                                // Map legacy format (executiveOverview) to new Risk Engine format
+                                if (parsedSummary.executiveOverview && !parsedSummary.executiveSnapshot) {
+                                    const score = parsedSummary.healthScore?.score || 50;
+                                    const isPerfect = score >= 90;
+                                    parsedSummary = {
+                                        ...parsedSummary,
+                                        executiveSnapshot: {
+                                            productionReady: isPerfect,
+                                            maintenanceRisk: score < 60 ? "High" : score < 80 ? "Medium" : "Low",
+                                            scalingReadiness: score < 60 ? "Low" : score < 80 ? "Medium" : "High",
+                                            securityRisk: parsedSummary.metrics?.dependencyHealth?.includes('Moderate') ? "Moderate" : "Low",
+                                            investmentRecommendation: parsedSummary.executiveOverview || parsedSummary.healthScore?.summary
+                                        },
+                                        healthBreakdown: {
+                                            codeQuality: { score: Math.floor(score * 0.2), risk: "Moderate", impact: "Medium" },
+                                            testing: { score: parsedSummary.metrics?.hasTests ? 20 : 0, risk: parsedSummary.metrics?.hasTests ? "Low" : "Critical", impact: "High" },
+                                            documentation: { score: parsedSummary.metrics?.hasReadme ? 10 : 0, risk: parsedSummary.metrics?.hasReadme ? "Low" : "High", impact: "Medium" },
+                                            dependencyRisk: { score: 10, risk: "Moderate", impact: "High" },
+                                            activityMaintenance: { score: 10, risk: "Moderate", impact: "Medium" },
+                                            architectureModularity: { score: Math.floor(score * 0.2), risk: "Moderate", impact: "Medium" },
+                                            totalScore: score
+                                        },
+                                        riskBoard: [
+                                            ...(parsedSummary.codeQuality?.weaknesses || []).map((w: string) => ({
+                                                title: w.length > 50 ? w.substring(0, 47) + "..." : w,
+                                                severity: "High",
+                                                impact: "High",
+                                                businessRisk: "Code maintainability",
+                                                fixEffort: "1-3 days",
+                                                confidence: 85,
+                                                description: w
+                                            })),
+                                            ...(parsedSummary.architecturalInsights || []).map((a: string) => ({
+                                                title: a.length > 50 ? a.substring(0, 47) + "..." : a,
+                                                severity: "Moderate",
+                                                impact: "Medium",
+                                                businessRisk: "Scalability",
+                                                fixEffort: "3-5 days",
+                                                confidence: 80,
+                                                description: a
+                                            }))
+                                        ],
+                                        technicalDebtMeter: {
+                                            dependencyToFileRatio: (parsedSummary.metrics?.dependencies / Math.max(parsedSummary.metrics?.totalFiles || 1, 1)).toFixed(2),
+                                            testToFileRatio: parsedSummary.metrics?.hasTests ? "0.1" : "0",
+                                            commitVelocity: "Medium",
+                                            contributorBusFactor: "High",
+                                            technicalDebtIndex: 100 - score,
+                                            riskTrend: "Stable"
+                                        }
+                                    };
+                                }
 
-                                                    <div className="relative p-8 md:p-10 z-10">
-                                                        <h3 className="text-sm font-bold text-primary uppercase tracking-widest mb-4 flex items-center gap-2">
-                                                            <SparklesMiniIcon className="w-4 h-4" />
-                                                            Executive Overview
-                                                        </h3>
-                                                        <p className="text-white text-lg md:text-xl leading-relaxed font-medium">
-                                                            {parsedSummary.executiveOverview || parsedSummary.summary}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            )}
+                                // Use the new Risk Engine UI component if the schema matches
+                                // We check for any of the new keys
+                                if (parsedSummary.executiveSnapshot || parsedSummary.healthBreakdown || parsedSummary.riskBoard) {
+                                    return <ReportStructuredUI parsedSummary={parsedSummary} />;
+                                }
 
-                                            {/* Key Insights Grid */}
-                                            {parsedSummary.architecturalInsights && Array.isArray(parsedSummary.architecturalInsights) && parsedSummary.architecturalInsights.length > 0 && (
-                                                <div>
-                                                    <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                                                        <Lightbulb className="w-5 h-5 text-amber-500" />
-                                                        Key Architectural Insights
-                                                    </h3>
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        {parsedSummary.architecturalInsights.map((insight: string, idx: number) => {
-                                                            // Simple heuristic for icon selection based on content length or keywords
-                                                            const isWarning = insight.toLowerCase().includes("absence") || insight.toLowerCase().includes("lack") || insight.toLowerCase().includes("issue") || insight.toLowerCase().includes("risk");
-                                                            const isPositive = insight.toLowerCase().includes("benefit") || insight.toLowerCase().includes("positive") || insight.toLowerCase().includes("good") || insight.toLowerCase().includes("strong");
-
-                                                            return (
-                                                                <div key={idx} className={`relative overflow-hidden rounded-2xl p-6 border transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${isWarning
-                                                                    ? "bg-red-50/50 dark:bg-red-500/5 border-red-100 dark:border-red-900/30 hover:shadow-red-500/10"
-                                                                    : isPositive
-                                                                        ? "bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-100 dark:border-emerald-900/30 hover:shadow-emerald-500/10"
-                                                                        : "bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-[#2d2d35] hover:shadow-primary/5"
-                                                                    }`}>
-                                                                    <div className="flex items-start gap-4">
-                                                                        <div className={`mt-1 flex-shrink-0 size-8 rounded-full flex items-center justify-center ${isWarning
-                                                                            ? "bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400"
-                                                                            : isPositive
-                                                                                ? "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
-                                                                                : "bg-primary/10 text-primary dark:text-primary"
-                                                                            }`}>
-                                                                            {isWarning ? <ShieldAlert className="w-4 h-4" /> : isPositive ? <Zap className="w-4 h-4" /> : <Target className="w-4 h-4" />}
-                                                                        </div>
-                                                                        <p className="text-slate-700 dark:text-slate-300 text-sm md:text-base leading-relaxed">
-                                                                            {insight}
-                                                                        </p>
-                                                                    </div>
-                                                                </div>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                                                {/* Code Quality Block */}
-                                                {parsedSummary.codeQuality && (
-                                                    <div className="col-span-1 lg:col-span-2 space-y-4">
-                                                        <div className="flex items-center gap-3 mb-2">
-                                                            <div className="size-10 rounded-full bg-pink-50 dark:bg-pink-500/10 flex items-center justify-center text-pink-500">
-                                                                <Code className="w-5 h-5" />
-                                                            </div>
-                                                            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Code Quality</h3>
-                                                        </div>
-
-                                                        {/* Strengths */}
-                                                        {parsedSummary.codeQuality.strengths && Array.isArray(parsedSummary.codeQuality.strengths) && parsedSummary.codeQuality.strengths.length > 0 && (
-                                                            <div className="bg-emerald-50/50 dark:bg-emerald-500/5 border border-emerald-100 dark:border-emerald-900/30 rounded-2xl p-5">
-                                                                <h4 className="text-sm font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-3">Strengths</h4>
-                                                                <ul className="space-y-2">
-                                                                    {parsedSummary.codeQuality.strengths.map((s: string, i: number) => (
-                                                                        <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
-                                                                            <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
-                                                                            <span>{s}</span>
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Weaknesses */}
-                                                        {parsedSummary.codeQuality.weaknesses && Array.isArray(parsedSummary.codeQuality.weaknesses) && parsedSummary.codeQuality.weaknesses.length > 0 && (
-                                                            <div className="bg-red-50/50 dark:bg-red-500/5 border border-red-100 dark:border-red-900/30 rounded-2xl p-5">
-                                                                <h4 className="text-sm font-bold text-red-700 dark:text-red-400 uppercase tracking-wider mb-3">Weaknesses</h4>
-                                                                <ul className="space-y-2">
-                                                                    {parsedSummary.codeQuality.weaknesses.map((w: string, i: number) => (
-                                                                        <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
-                                                                            <XCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                                                                            <span>{w}</span>
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Recommendations */}
-                                                        {parsedSummary.codeQuality.recommendations && Array.isArray(parsedSummary.codeQuality.recommendations) && parsedSummary.codeQuality.recommendations.length > 0 && (
-                                                            <div className="bg-blue-50/50 dark:bg-blue-500/5 border border-blue-100 dark:border-blue-900/30 rounded-2xl p-5">
-                                                                <h4 className="text-sm font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-3">Recommendations</h4>
-                                                                <ul className="space-y-2">
-                                                                    {parsedSummary.codeQuality.recommendations.map((r: string, i: number) => (
-                                                                        <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
-                                                                            <Activity className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-                                                                            <span>{r}</span>
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Fallback if it's still a string */}
-                                                        {typeof parsedSummary.codeQuality === 'string' && (
-                                                            <div className="p-5 border rounded-2xl bg-white dark:bg-[#151022] text-slate-700 dark:text-slate-300">
-                                                                {parsedSummary.codeQuality}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                {/* Recommended Roadmap Timeline */}
-                                                {parsedSummary.roadmap && Array.isArray(parsedSummary.roadmap) && parsedSummary.roadmap.length > 0 && (
-                                                    <div className="col-span-1 lg:col-span-3 bg-slate-50 dark:bg-black border border-slate-200 dark:border-[#2d2d35] rounded-3xl p-8">
-                                                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-8 flex items-center gap-3">
-                                                            <div className="size-10 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-500">
-                                                                <GitBranch className="w-5 h-5" />
-                                                            </div>
-                                                            Recommended Action Roadmap
-                                                        </h3>
-                                                        <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 dark:before:via-slate-700 before:to-transparent">
-                                                            {parsedSummary.roadmap.map((step: string, idx: number) => {
-                                                                // Infer tier from text
-                                                                let tierColor = "text-slate-500";
-                                                                let tierBg = "bg-white dark:bg-[#151022]";
-                                                                if (step.toLowerCase().includes('immediate')) { tierColor = "text-red-500"; tierBg = "bg-red-50 dark:bg-red-500/10 border-red-200"; }
-                                                                else if (step.toLowerCase().includes('short-term')) { tierColor = "text-blue-500"; tierBg = "bg-blue-50 dark:bg-blue-500/10 border-blue-200"; }
-                                                                else if (step.toLowerCase().includes('long-term')) { tierColor = "text-purple-500"; tierBg = "bg-purple-50 dark:bg-purple-500/10 border-purple-200"; }
-
-                                                                return (
-                                                                    <div key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                                                                        {/* Icon Node */}
-                                                                        <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-slate-50 dark:border-black shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 transition-colors ${tierBg} ${tierColor}`}>
-                                                                            <span className="text-sm font-bold">{idx + 1}</span>
-                                                                        </div>
-
-                                                                        {/* Content */}
-                                                                        <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-5 rounded-2xl border border-slate-200 dark:border-[#2d2d35] bg-white dark:bg-white/5 shadow-sm group-hover:shadow-md transition-shadow">
-                                                                            <p className="text-slate-700 dark:text-slate-300 text-sm md:text-base leading-relaxed">{step.replace(/^(Immediate|Short-term|Long-term):\s*/i, '')}</p>
-                                                                            <span className={`inline-block mt-3 text-xs font-bold uppercase tracking-wider ${tierColor}`}>
-                                                                                {step.match(/^(Immediate|Short-term|Long-term)/i)?.[0] || 'Milestone'}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                )
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
+                                // Legacy fallback rendering for old reports...
+                                return (
+                                    <div className="prose prose-slate dark:prose-invert prose-lg max-w-none">
+                                        <div className="bg-primary/5 dark:bg-primary/10 border-l-4 border-primary p-6 rounded-r-2xl text-slate-700 dark:text-slate-300 leading-relaxed text-sm">
+                                            <pre className="whitespace-pre-wrap font-sans">{JSON.stringify(parsedSummary, null, 2)}</pre>
                                         </div>
-                                    )
-                                }
-
-                                // LEGACY FALLBACK FORMAT HANDLING (deepseek old format)
-                                else if (parsedSummary.executive_summary) {
-                                    // Legacy structure rendering
-                                    // (Skipping to keep it simple, or dropping it since old structure might not have executive_summary anymore anyway)
-                                    // Let's just fall back to raw string for anything else that doesn't match the new schema.
-                                }
+                                    </div>
+                                );
                             }
 
                             // Fallback to raw string if nothing parsed cleanly
@@ -336,6 +253,11 @@ id,
                             );
                         })()}
                     </div>
+
+                    {/* PR Review Health Section */}
+                    {repositoryId && (
+                        <PRReviewHealth repositoryId={repositoryId} initialMetrics={initialPRMetrics} />
+                    )}
 
                     {/* Repository Metrics Section */}
                     {report.metrics_snapshot && (

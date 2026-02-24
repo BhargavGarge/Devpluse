@@ -36,16 +36,57 @@ function calculateHealthScore(metrics: any) {
     };
 }
 
-// Generate fallback summary if AI is unavailable or fails
 function generateFallbackSummary(repoName: string, score: number, breakdown: any, metrics: any) {
-    const issues = Object.keys(breakdown).map(k => k.replace(/_/g, ' '));
     const isPerfect = score === 100;
 
-    const fallbackObj = {
+    return {
         repoName: repoName,
-        summary: isPerfect
-            ? `Analysis complete for ${repoName}. The repository is exceptionally well-maintained with solid activity, testing, and documentation.`
-            : `Analysis complete for ${repoName}. The repository scored ${score}/100 based on structural signals.`,
+        executiveSnapshot: {
+            productionReady: isPerfect,
+            maintenanceRisk: isPerfect ? "Low" : "High",
+            scalingReadiness: isPerfect ? "High" : "Medium",
+            securityRisk: isPerfect ? "Low" : "Moderate",
+            investmentRecommendation: isPerfect
+                ? "Ready for scaling and feature development."
+                : "Needs stabilization phase and tech debt reduction."
+        },
+        healthBreakdown: {
+            codeQuality: { score: isPerfect ? 20 : 10, risk: "Moderate", impact: "Medium" },
+            testing: { score: metrics.hasTests ? 20 : 0, risk: metrics.hasTests ? "Low" : "Critical", impact: "High" },
+            documentation: { score: metrics.hasReadme ? 10 : 0, risk: metrics.hasReadme ? "Low" : "High", impact: "Medium" },
+            dependencyRisk: { score: metrics.dependencies > 40 ? 5 : 15, risk: metrics.dependencies > 40 ? "High" : "Low", impact: "High" },
+            activityMaintenance: { score: metrics.commitsLast30Days > 3 ? 15 : 5, risk: metrics.commitsLast30Days > 3 ? "Low" : "High", impact: "Medium" },
+            architectureModularity: { score: 10, risk: "Moderate", impact: "Medium" },
+            totalScore: score
+        },
+        riskBoard: [
+            ...(!metrics.hasTests ? [{
+                title: "Missing Automated Tests",
+                severity: "Critical",
+                impact: "High",
+                businessRisk: "Production instability",
+                fixEffort: "1-2 days",
+                confidence: 95,
+                description: "No testing framework detected in root directory."
+            }] : []),
+            ...(!metrics.hasReadme ? [{
+                title: "Missing Documentation",
+                severity: "High",
+                impact: "Medium",
+                businessRisk: "Onboarding delays",
+                fixEffort: "2-4 hours",
+                confidence: 90,
+                description: "Lack of README makes understanding the project difficult."
+            }] : [])
+        ],
+        technicalDebtMeter: {
+            dependencyToFileRatio: (metrics.dependencies / (metrics.totalFiles || 1)).toFixed(2),
+            testToFileRatio: metrics.hasTests ? "0.1" : "0",
+            commitVelocity: metrics.commitsLast30Days > 10 ? "High" : "Low",
+            contributorBusFactor: "High",
+            technicalDebtIndex: 100 - score,
+            riskTrend: "Stable"
+        },
         metrics: {
             totalFiles: metrics.total_files || 0,
             primaryLanguage: metrics.primary_language || "Unknown",
@@ -55,13 +96,8 @@ function generateFallbackSummary(repoName: string, score: number, breakdown: any
             hasTests: metrics.hasTests || false,
             recentCommits: metrics.commitsLast30Days || 0,
             openIssues: metrics.openIssues || 0
-        },
-        insights: issues.length > 0 ? issues : ["None detected by static analysis"],
-        roadmap: issues.length > 0 ? issues.map((i: string) => `Address ${i}`) : ["Continue current best practices"],
-        codeQuality: "Standard fallback evaluation - sufficient structural components found matching standard ecosystem patterns."
+        }
     };
-
-    return fallbackObj; // Return object, will be inserted to DB
 }
 
 export async function POST(request: Request) {
