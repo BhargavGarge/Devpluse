@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Clock, FileCode2, GitPullRequestDraft, ShieldAlert, Sparkles, RefreshCw, Users, Code2, GitMerge, MessageSquare, AlertTriangle } from "lucide-react";
+import { Activity, Clock, FileCode2, GitPullRequestDraft, ShieldAlert, Sparkles, RefreshCw, Users, Code2, GitMerge, MessageSquare, AlertTriangle, Brain, TrendingUp, Download } from "lucide-react";
 import { PullRequestMetrics } from "@/lib/domain/pr-metrics/entities";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas-pro";
 
 interface PRReviewHealthProps {
     repositoryId: string;
@@ -13,6 +16,7 @@ interface PRReviewHealthProps {
 export default function PRReviewHealth({ repositoryId, initialMetrics }: PRReviewHealthProps) {
     const [metrics, setMetrics] = useState<PullRequestMetrics | null>(initialMetrics || null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const handleAnalyze = async () => {
@@ -34,6 +38,58 @@ export default function PRReviewHealth({ repositoryId, initialMetrics }: PRRevie
         }
     };
 
+    const handleExportPDF = async () => {
+        const element = document.getElementById("insights-report-container");
+        if (!element) return;
+
+        setIsExporting(true);
+        try {
+            // Adjust padding briefly to ensure margins look good on PDF
+            const originalPadding = element.style.padding;
+            const originalBg = element.style.backgroundColor;
+            element.style.padding = "20px";
+            // Check if dark mode is active by looking at doc element or just force transparent bg
+
+            const canvas = await html2canvas(element, {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                backgroundColor: null,
+            });
+
+            element.style.padding = originalPadding;
+            element.style.backgroundColor = originalBg;
+
+            const imgData = canvas.toDataURL("image/png");
+
+            const pdfWidth = 210;
+            const pageHeight = 297;
+            const imgWidth = pdfWidth;
+            const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+
+            const pdf = new jsPDF("p", "mm", "a4");
+
+            let heightLeft = imgHeight;
+            let position = 0;
+
+            pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+
+            while (heightLeft >= 0) {
+                position = heightLeft - imgHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+            }
+
+            pdf.save(`Engineering_Report_${repositoryId}.pdf`);
+        } catch (err) {
+            console.error("PDF generation failed", err);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
         <section className="mt-12 space-y-6">
             <div className="flex items-center justify-between">
@@ -44,14 +100,24 @@ export default function PRReviewHealth({ repositoryId, initialMetrics }: PRRevie
                     </p>
                 </div>
                 {metrics && (
-                    <button
-                        onClick={handleAnalyze}
-                        disabled={isAnalyzing}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border rounded-md shadow-sm bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-                    >
-                        <RefreshCw className={`w-4 h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                        {isAnalyzing ? 'Analyzing...' : 'Re-analyze PRs'}
-                    </button>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={handleExportPDF}
+                            disabled={isExporting || isAnalyzing}
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border rounded-md shadow-sm bg-card hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                        >
+                            {isExporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                            {isExporting ? 'Exporting...' : 'Export Report'}
+                        </button>
+                        <button
+                            onClick={handleAnalyze}
+                            disabled={isAnalyzing || isExporting}
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border rounded-md shadow-sm bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow disabled:opacity-50"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                            {isAnalyzing ? 'Analyzing...' : 'Re-analyze PRs'}
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -69,18 +135,34 @@ export default function PRReviewHealth({ repositoryId, initialMetrics }: PRRevie
                     <EmptyState key="empty" onAnalyze={handleAnalyze} />
                 ) : (
                     <motion.div
+                        id="insights-report-container"
                         key="content"
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.4 }}
-                        className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4"
+                        className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4 bg-background dark:bg-transparent"
                     >
-                        <div className="md:col-span-1 lg:col-span-1" id="tour-health-score">
-                            <PRHealthCard score={metrics.healthScore} riskLevel={metrics.riskLevel} />
+                        {/* Full Width Top Section */}
+                        {metrics.smartAlerts && metrics.smartAlerts.length > 0 && (
+                            <div className="md:col-span-full" id="tour-smart-alerts">
+                                <SmartAlertsList alerts={metrics.smartAlerts} />
+                            </div>
+                        )}
+
+                        <div className="md:col-span-1 lg:col-span-1 space-y-6" id="tour-health-score">
+                            <PRHealthCard score={metrics.healthScore} riskLevel={metrics.riskLevel} breakdown={metrics.healthScoreBreakdown} />
+                            {metrics.aiRiskNarrative && (
+                                <AIRiskNarrativeCard narrative={metrics.aiRiskNarrative} />
+                            )}
                         </div>
-                        <div className="md:col-span-2 lg:col-span-3" id="tour-metrics-grid">
+                        <div className="md:col-span-2 lg:col-span-3 space-y-6" id="tour-metrics-grid">
                             <PRMetricsGrid metrics={metrics} />
+                        </div>
+
+                        {/* Full Width Trend Section */}
+                        <div className="md:col-span-full" id="tour-trend">
+                            <PRHealthTrend repositoryId={repositoryId} currentScore={metrics.healthScore} />
                         </div>
 
                         {/* MVP 2 Features */}
@@ -149,7 +231,7 @@ function LoadingSkeleton() {
     );
 }
 
-function PRHealthCard({ score, riskLevel }: { score: number, riskLevel: string }) {
+function PRHealthCard({ score, riskLevel, breakdown }: { score: number, riskLevel: string, breakdown?: PullRequestMetrics['healthScoreBreakdown'] }) {
     const isGood = riskLevel === "Low";
     const isModerate = riskLevel === "Moderate";
     const isHigh = riskLevel === "High";
@@ -185,12 +267,40 @@ function PRHealthCard({ score, riskLevel }: { score: number, riskLevel: string }
                     </div>
                 </div>
 
-                <span className={`px-3 py-1 text-xs font-semibold rounded-full mt-2 ${isGood ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                <span className={`px-3 py-1 text-xs font-semibold rounded-full mt-2 mb-6 ${isGood ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' :
                     isModerate ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400' :
                         'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                     }`}>
                     {riskLevel} Risk
                 </span>
+
+                {breakdown && (
+                    <div className="w-full mt-2">
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Score Breakdown</h4>
+                        <div className="space-y-2 text-sm">
+                            <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-muted-foreground">PR Size (25%)</span>
+                                <span className="font-medium">{breakdown.prSizeScore} / 25</span>
+                            </div>
+                            <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-muted-foreground">Review Time (20%)</span>
+                                <span className="font-medium">{breakdown.reviewTimeScore} / 20</span>
+                            </div>
+                            <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-muted-foreground">Unreviewed (25%)</span>
+                                <span className="font-medium">{breakdown.unreviewedRatioScore} / 25</span>
+                            </div>
+                            <div className="flex justify-between items-center py-1 border-b border-border/50">
+                                <span className="text-muted-foreground">Merge Speed (15%)</span>
+                                <span className="font-medium">{breakdown.mergeSpeedScore} / 15</span>
+                            </div>
+                            <div className="flex justify-between items-center py-1">
+                                <span className="text-muted-foreground">Multi-Reviewer (15%)</span>
+                                <span className="font-medium">{breakdown.multiReviewerScore} / 15</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -283,12 +393,23 @@ function ContributorDiscipline({ insights }: { insights: PullRequestMetrics['con
                     <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Top Contributors</h4>
                     <div className="space-y-2">
                         {insights.topContributors.map((c, i) => (
-                            <div key={i} className="flex items-center justify-between p-2 text-sm rounded-md bg-muted/10 border border-transparent hover:border-border">
-                                <span className="font-medium">{c.login}</span>
-                                <div className="flex gap-4 text-muted-foreground">
-                                    <span className="flex items-center gap-1" title="Pull Requests"><GitPullRequestDraft className="w-3 h-3" /> {c.prCount}</span>
-                                    <span className="flex items-center gap-1" title="Lines Changed"><FileCode2 className="w-3 h-3" /> {c.linesChanged > 1000 ? (c.linesChanged / 1000).toFixed(1) + 'k' : c.linesChanged}</span>
+                            <div key={i} className="flex flex-col p-3 text-sm rounded-md bg-muted/10 border border-transparent hover:border-border">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="font-medium">{c.login}</span>
+                                    <div className="flex gap-4 text-muted-foreground">
+                                        <span className="flex items-center gap-1" title="Pull Requests"><GitPullRequestDraft className="w-3 h-3" /> {c.prCount}</span>
+                                        <span className="flex items-center gap-1" title="Lines Changed"><FileCode2 className="w-3 h-3" /> {c.linesChanged > 1000 ? (c.linesChanged / 1000).toFixed(1) + 'k' : c.linesChanged}</span>
+                                    </div>
                                 </div>
+                                {c.personaTags && c.personaTags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {c.personaTags.map((tag, tagIdx) => (
+                                            <span key={tagIdx} className="px-2 py-0.5 text-[10px] uppercase font-bold tracking-wider rounded-sm bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                                                {tag}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -411,6 +532,176 @@ function ReviewDeepDive({ deepDive }: { deepDive: PullRequestMetrics['reviewDeep
                         <p className="text-2xl font-bold">{(deepDive.fastMergeRatio * 100).toFixed(0)}%</p>
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function AIRiskNarrativeCard({ narrative }: { narrative: PullRequestMetrics['aiRiskNarrative'] }) {
+    if (!narrative) return null;
+
+    const isExcellent = narrative.severity === "Excellent";
+    const isCritical = (narrative.severity as string) === "Critical";
+    const isHigh = narrative.severity === "High";
+
+    return (
+        <div className="flex flex-col p-6 transition-all border shadow-sm bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-xl border-indigo-500/20">
+            <div className="flex items-center gap-2 mb-3">
+                <Brain className="w-5 h-5 text-indigo-500" />
+                <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-400">AI Risk Narrative</h3>
+            </div>
+
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-relaxed mb-4">
+                "{narrative.explanation}"
+            </p>
+
+            <div className={`p-3 rounded-lg border text-sm mb-4 ${isExcellent ? 'bg-emerald-100/50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-800/30 dark:text-emerald-300' :
+                isCritical || isHigh ? 'bg-red-100/50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800/30 dark:text-red-300' :
+                    'bg-amber-100/50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800/30 dark:text-amber-300'
+                }`}>
+                <strong>{narrative.severity} Severity:</strong> {narrative.severityJustification}
+            </div>
+
+            {narrative.recommendedActions && narrative.recommendedActions.length > 0 && (
+                <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Recommended Actions</h4>
+                    <ul className="space-y-2">
+                        {narrative.recommendedActions.map((action: string, i: number) => (
+                            <li key={i} className="text-xs text-slate-600 dark:text-slate-400 flex items-start gap-2">
+                                <span className="text-indigo-500 font-bold mt-0.5">•</span>
+                                <span>{action}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function SmartAlertsList({ alerts }: { alerts: PullRequestMetrics['smartAlerts'] }) {
+    if (!alerts || alerts.length === 0) return null;
+
+    const criticalCount = alerts.filter(a => a.severity === 'critical').length;
+    const isCritical = criticalCount > 0;
+
+    return (
+        <div className={`p-4 rounded-xl border ${isCritical ? 'bg-red-500/5 border-red-500/20' : 'bg-amber-500/5 border-amber-500/20'}`}>
+            <div className="flex items-center gap-2 mb-3">
+                <ShieldAlert className={`w-5 h-5 ${isCritical ? 'text-red-500' : 'text-amber-500'}`} />
+                <h3 className="font-semibold text-foreground">
+                    Active Smart Alerts
+                </h3>
+                <span className={`ml-2 px-2 py-0.5 text-xs font-bold rounded-full ${isCritical ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'}`}>
+                    {alerts.length} Issue{alerts.length !== 1 ? 's' : ''}
+                </span>
+            </div>
+
+            <div className="space-y-3">
+                {alerts.map(alert => (
+                    <div key={alert.id} className="flex gap-3 items-start bg-background p-3 rounded-lg border shadow-sm">
+                        <div className="mt-0.5">
+                            {alert.severity === 'critical' ? (
+                                <AlertTriangle className="w-4 h-4 text-red-500" />
+                            ) : (
+                                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                            )}
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-semibold">{alert.title}</h4>
+                            <p className="text-sm text-muted-foreground mt-0.5">{alert.description}</p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function PRHealthTrend({ repositoryId, currentScore }: { repositoryId: string, currentScore: number }) {
+    const [trendData, setTrendData] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [timeRange, setTimeRange] = useState('1m');
+
+    useEffect(() => {
+        async function fetchTrends() {
+            setLoading(true);
+            try {
+                const res = await fetch(`/api/repositories/${repositoryId}/pr-trends?range=${timeRange}`);
+                if (res.ok) {
+                    const data = await res.json();
+
+                    // Format dates and ensure we have data
+                    let formattedData = (data.trends || []).map((t: any) => ({
+                        date: new Date(t.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                        score: t.health_score,
+                        size: t.avg_pr_size
+                    }));
+
+                    setTrendData(formattedData);
+                }
+            } catch (err) {
+                console.error("Failed to fetch trends", err);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        fetchTrends();
+    }, [repositoryId, currentScore, timeRange]);
+
+    if (!loading && trendData.length === 0) return null;
+
+    return (
+        <div className="flex flex-col h-[300px] p-6 transition-all border shadow-sm bg-card rounded-xl">
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-indigo-500" />
+                    <h3 className="text-lg font-semibold">PR Health Trend</h3>
+                </div>
+                <select
+                    value={timeRange}
+                    onChange={(e) => setTimeRange(e.target.value)}
+                    className="text-sm border rounded-md px-2 py-1 bg-background text-foreground focus:ring-1 focus:ring-indigo-500 outline-none"
+                >
+                    <option value="1m">Last 4 Weeks</option>
+                    <option value="3m">Last 3 Months</option>
+                    <option value="6m">Last 6 Months</option>
+                </select>
+            </div>
+
+            <div className="flex-1 w-full h-full min-h-[180px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={trendData} margin={{ top: 5, right: 20, bottom: 5, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
+                        <XAxis
+                            dataKey="date"
+                            axisLine={false}
+                            tickLine={false}
+                            tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                            dy={10}
+                        />
+                        <YAxis
+                            axisLine={false}
+                            tickLine={false}
+                            tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                            domain={[0, 100]}
+                        />
+                        <Tooltip
+                            contentStyle={{ borderRadius: '8px', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))' }}
+                            itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
+                        />
+                        <Line
+                            type="monotone"
+                            dataKey="score"
+                            name="Health Score"
+                            stroke="#6366f1"
+                            strokeWidth={3}
+                            dot={{ r: 4, fill: '#6366f1', strokeWidth: 2, stroke: 'hsl(var(--background))' }}
+                            activeDot={{ r: 6, strokeWidth: 0, fill: '#4f46e5' }}
+                        />
+                    </LineChart>
+                </ResponsiveContainer>
             </div>
         </div>
     );
