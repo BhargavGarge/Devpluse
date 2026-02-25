@@ -1,6 +1,7 @@
-import { PullRequestMetrics, RiskLevel } from "@/lib/domain/pr-metrics/entities";
+import { PullRequestMetrics, RiskLevel, ContributorInsights, LanguageDistribution, ReviewDeepDive, SmartAlert } from "@/lib/domain/pr-metrics/entities";
 import { GitHubPRClient } from "@/lib/infrastructure/github/github-pr-client";
 import { PRMetricsRepository } from "@/lib/infrastructure/database/pr-metrics-repository";
+import { generatePRAiAdvisor } from "@/lib/generatePRAiAdvisor";
 
 export class AnalyzePullRequestsUseCase {
     constructor(
@@ -45,6 +46,8 @@ export class AnalyzePullRequestsUseCase {
         // Contributor Metric Accumulators
         const authorPRCounts: Record<string, number> = {};
         const authorLinesChanged: Record<string, number> = {};
+        const authorFastMerges: Record<string, number> = {};
+        const authorUnreviewed: Record<string, number> = {};
         const uniqueReviewers = new Set<string>();
 
         for (const pr of prs) {
@@ -83,8 +86,13 @@ export class AnalyzePullRequestsUseCase {
 
                     if (diffHours < 0.5) { // < 30 mins
                         fastMergeCount++;
+                        authorFastMerges[author] = (authorFastMerges[author] || 0) + 1;
                     }
                 }
+            }
+
+            if (pr.review_comments === 0) {
+                authorUnreviewed[author] = (authorUnreviewed[author] || 0) + 1;
             }
         }
 
@@ -112,11 +120,34 @@ export class AnalyzePullRequestsUseCase {
 
         // MVP 2: Contributor Insights
         const authorsList = Object.keys(authorPRCounts);
-        const topContributors = authorsList.map(login => ({
-            login,
-            prCount: authorPRCounts[login],
-            linesChanged: authorLinesChanged[login]
-        })).sort((a, b) => b.prCount - a.prCount);
+        const topContributors = authorsList.map(login => {
+            const prCount = authorPRCounts[login];
+            const linesChanged = authorLinesChanged[login];
+            const avgSize = prCount > 0 ? linesChanged / prCount : 0;
+            const fastMergeRatio = prCount > 0 ? (authorFastMerges[login] || 0) / prCount : 0;
+            const unreviewedRatio = prCount > 0 ? (authorUnreviewed[login] || 0) / prCount : 0;
+
+            const personaTags: string[] = [];
+
+            if (fastMergeRatio > 0.5 && unreviewedRatio > 0.5) {
+                personaTags.push("High Velocity, Low Review");
+            } else if (fastMergeRatio < 0.2 && unreviewedRatio < 0.2) {
+                personaTags.push("Careful Reviewer");
+            }
+
+            if (avgSize > 600) {
+                personaTags.push("Large PR Specialist");
+            } else if (prCount <= 2 && totalPRs > 10) {
+                personaTags.push("Drive-by Contributor");
+            }
+
+            return {
+                login,
+                prCount,
+                linesChanged,
+                personaTags
+            };
+        }).sort((a, b) => b.prCount - a.prCount);
 
         const maxPRCount = topContributors.length > 0 ? topContributors[0].prCount : 0;
         const singleContributorRatio = totalPRs > 0 ? maxPRCount / totalPRs : 0;
@@ -153,17 +184,47 @@ export class AnalyzePullRequestsUseCase {
             fragmentationScore: Number(fragmentationScore.toFixed(2))
         };
 
-        // 3. Compute Deterministic Health Score
-        let score = 100;
+        // 3. Compute Deterministic Health Score (Transparent Weighted Breakdown)
+        // Max Score: 100
+        // PR Size: 25% (0-25)
+        // Review Time: 20% (0-20)
+        // Unreviewed Ratio: 25% (0-25)
+        // Merge Speed (Fast Merges): 15% (0-15)
+        // Multi-Reviewer 15% (0-15)
 
-        if (averagePRSize > 600) score -= 20;
-        if (unreviewedRatio > 0.4) score -= 20;
-        if (averageReviewTime < 1 && totalPRs > 0) score -= 10; // Suspect rubber stamping
-        if (largePRRatio > 0.3) score -= 15;
+        let prSizeScore = 25;
+        if (averagePRSize > 800) prSizeScore = 0;
+        else if (averagePRSize > 500) prSizeScore = 10;
+        else if (averagePRSize > 300) prSizeScore = 15;
+        else if (averagePRSize > 100) prSizeScore = 20;
 
-        // Ownership risk penalty
+        let reviewTimeScore = 20;
+        if (averageReviewTime < 0.5 || averageReviewTime > 72) reviewTimeScore = 0; // Rubber stamp or abandoned
+        else if (averageReviewTime > 48) reviewTimeScore = 5;
+        else if (averageReviewTime > 24) reviewTimeScore = 10;
+        else if (averageReviewTime > 12) reviewTimeScore = 15;
+
+        let unreviewedRatioScore = 25;
+        if (unreviewedRatio > 0.6) unreviewedRatioScore = 0;
+        else if (unreviewedRatio > 0.4) unreviewedRatioScore = 5;
+        else if (unreviewedRatio > 0.2) unreviewedRatioScore = 15;
+        else if (unreviewedRatio > 0.1) unreviewedRatioScore = 20;
+
+        // < 30 mins fast merges are bad for quality if too high
+        let mergeSpeedScore = 15;
+        if (reviewDeepDive.fastMergeRatio > 0.5) mergeSpeedScore = 0;
+        else if (reviewDeepDive.fastMergeRatio > 0.3) mergeSpeedScore = 5;
+        else if (reviewDeepDive.fastMergeRatio > 0.1) mergeSpeedScore = 10;
+
+        let multiReviewerScore = 15;
+        if (reviewDeepDive.multipleReviewersRatio < 0.05) multiReviewerScore = 0;
+        else if (reviewDeepDive.multipleReviewersRatio < 0.1) multiReviewerScore = 5;
+        else if (reviewDeepDive.multipleReviewersRatio < 0.2) multiReviewerScore = 10;
+
+        let score = prSizeScore + reviewTimeScore + unreviewedRatioScore + mergeSpeedScore + multiReviewerScore;
+
+        // Severe ownership or complexity penalties (can reduce score below the sum)
         if (singleContributorRatio > 0.7 && totalPRs > 5) score -= 15;
-        // Complexity penalty
         if (fragmentationScore > 0.5) score -= 10;
 
         score = Math.max(0, Math.min(100, score));
@@ -172,6 +233,14 @@ export class AnalyzePullRequestsUseCase {
         if (score >= 80) riskLevel = "Low";
         else if (score >= 50) riskLevel = "Moderate";
 
+        const healthScoreBreakdown = {
+            prSizeScore,
+            reviewTimeScore,
+            unreviewedRatioScore,
+            mergeSpeedScore,
+            multiReviewerScore
+        };
+
         const metrics: PullRequestMetrics = {
             repositoryId,
             averagePRSize: Math.round(averagePRSize),
@@ -179,13 +248,76 @@ export class AnalyzePullRequestsUseCase {
             unreviewedRatio: Number(unreviewedRatio.toFixed(2)),
             largePRRatio: Number(largePRRatio.toFixed(2)),
             healthScore: Math.round(score),
+            healthScoreBreakdown,
             riskLevel,
             contributorInsights,
             languageDistribution,
-            reviewDeepDive
+            reviewDeepDive,
+            smartAlerts: [] // Will populate below
         };
 
-        // 4. Store Results in DB
+        // 4. Generate Smart Alerts
+        const alerts: SmartAlert[] = [];
+
+        if (metrics.unreviewedRatio > 0.4) {
+            alerts.push({
+                id: 'high-unreviewed',
+                title: 'High Unreviewed Ratio',
+                description: `${(metrics.unreviewedRatio * 100).toFixed(0)}% of PRs are merged without any review comments. This significantly increases regression risk.`,
+                severity: 'critical',
+                type: 'quality'
+            });
+        }
+
+        if (metrics.reviewDeepDive?.fastMergeRatio && metrics.reviewDeepDive.fastMergeRatio > 0.4) {
+            alerts.push({
+                id: 'high-fast-merges',
+                title: 'Suspiciously Fast Merges',
+                description: `${(metrics.reviewDeepDive.fastMergeRatio * 100).toFixed(0)}% of PRs are merged in under 30 minutes, suggesting potential rubber-stamping.`,
+                severity: 'warning',
+                type: 'review'
+            });
+        }
+
+        if (metrics.averagePRSize > 600) {
+            alerts.push({
+                id: 'large-pr-size',
+                title: 'Massive PR Sizes',
+                description: `Average PR is ${metrics.averagePRSize} lines. PRs this large are notoriously difficult to review thoroughly and cause merge conflicts.`,
+                severity: 'warning',
+                type: 'velocity'
+            });
+        }
+
+        if (metrics.contributorInsights && metrics.contributorInsights.singleContributorRatio > 0.6 && totalPRs > 10) {
+            alerts.push({
+                id: 'ownership-risk',
+                title: 'High Key-Person Dependency',
+                description: `A single developer merged ${(metrics.contributorInsights.singleContributorRatio * 100).toFixed(0)}% of recent PRs. High bus-factor risk.`,
+                severity: 'critical',
+                type: 'ownership'
+            });
+        }
+
+        if (metrics.contributorInsights && metrics.contributorInsights.reviewParticipationRate < 0.3 && totalPRs > 5) {
+            alerts.push({
+                id: 'low-review-participation',
+                title: 'Siloed Code Reviews',
+                description: `Only ${(metrics.contributorInsights.reviewParticipationRate * 100).toFixed(0)}% of contributors are participating in reviews. Knowledge is not being shared.`,
+                severity: 'warning',
+                type: 'review'
+            });
+        }
+
+        metrics.smartAlerts = alerts;
+
+        // 5. Generate AI Risk Narrative
+        const aiRiskNarrative = await generatePRAiAdvisor(metrics);
+        if (aiRiskNarrative) {
+            metrics.aiRiskNarrative = aiRiskNarrative;
+        }
+
+        // 6. Store Results in DB
         return await this.metricsRepo.saveMetrics(metrics);
     }
 }

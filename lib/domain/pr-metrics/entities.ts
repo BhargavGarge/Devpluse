@@ -4,15 +4,16 @@ export interface PRHealthScore {
     score: number;
     riskLevel: RiskLevel;
     breakdown: {
-        averagePRSize: number;
-        averageReviewTime: number; // in hours
-        unreviewedPRRatio: number;
-        largePRRatio: number;
+        prSizeScore: number;
+        reviewTimeScore: number;
+        unreviewedRatioScore: number;
+        mergeSpeedScore: number;
+        multiReviewerScore: number;
     };
 }
 
 export interface ContributorInsights {
-    topContributors: Array<{ login: string, prCount: number, linesChanged: number }>;
+    topContributors: Array<{ login: string, prCount: number, linesChanged: number, personaTags: string[] }>;
     singleContributorRatio: number;
     reviewParticipationRate: number; // Ratio of contributors who actually gave reviews
 }
@@ -30,6 +31,21 @@ export interface ReviewDeepDive {
     fastMergeRatio: number; // < 30 mins
 }
 
+export interface AIRiskNarrative {
+    explanation: string;
+    severity: RiskLevel | "Excellent";
+    severityJustification: string;
+    recommendedActions: string[];
+}
+
+export interface SmartAlert {
+    id: string;
+    title: string;
+    description: string;
+    severity: "critical" | "warning" | "info";
+    type: "ownership" | "velocity" | "quality" | "review";
+}
+
 export interface PullRequestMetrics {
     id?: string;
     repositoryId: string;
@@ -38,11 +54,14 @@ export interface PullRequestMetrics {
     unreviewedRatio: number;
     largePRRatio: number;
     healthScore: number;
+    healthScoreBreakdown?: PRHealthScore['breakdown'];
     riskLevel: RiskLevel;
     analyzedAt?: string;
     contributorInsights?: ContributorInsights;
     languageDistribution?: LanguageDistribution;
     reviewDeepDive?: ReviewDeepDive;
+    aiRiskNarrative?: AIRiskNarrative;
+    smartAlerts?: SmartAlert[];
 }
 
 export interface RawPullRequest {
