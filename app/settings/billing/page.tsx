@@ -1,15 +1,62 @@
 "use client";
 
-import { Activity, Search, Bell, Moon, Calendar, CreditCard, ArrowUpCircle, Receipt, Filter, Download, Edit2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, Search, Bell, Calendar, CreditCard, ArrowUpCircle, Receipt, Filter, Download, Edit2, AlertTriangle, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
+interface BillingData {
+    plan: "starter" | "pro";
+    status: string;
+    billingInterval?: "monthly" | "yearly";
+    currentPeriodEnd?: number;
+    card?: {
+        brand: string;
+        last4: string;
+        exp_month: number;
+        exp_year: number;
+    };
+    invoices?: {
+        id: string;
+        date: number;
+        amount: number;
+        status: string;
+        invoiceUrl: string;
+    }[];
+}
+
 export default function BillingPage() {
-    const invoices = [
-        { id: "INV-2024-009", date: "Sep 24, 2024", amount: "$49.00", status: "Paid" },
-        { id: "INV-2024-008", date: "Aug 24, 2024", amount: "$49.00", status: "Paid" },
-        { id: "INV-2024-007", date: "Jul 24, 2024", amount: "$49.00", status: "Paid" }
-    ];
+    const [billingData, setBillingData] = useState<BillingData | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isPortalLoading, setIsPortalLoading] = useState(false);
+
+    useEffect(() => {
+        fetch("/api/billing/summary")
+            .then((res) => res.json())
+            .then((data) => {
+                setBillingData(data);
+                setIsLoading(false);
+            })
+            .catch(err => {
+                console.error("Failed to fetch billing data", err);
+                setIsLoading(false);
+            });
+    }, []);
+
+    async function openPortal() {
+        setIsPortalLoading(true);
+        try {
+            const res = await fetch("/api/billing/create-portal-session", { method: "POST" });
+            const data = await res.json();
+            if (data.url) {
+                window.location.href = data.url;
+            }
+        } catch (error) {
+            console.error("Failed to open portal", error);
+        } finally {
+            setIsPortalLoading(false);
+        }
+    }
 
     return (
         <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-background-light dark:bg-[#0f0f12] text-slate-900 dark:text-slate-100 font-display">
@@ -61,10 +108,35 @@ export default function BillingPage() {
                         <span className="text-slate-900 dark:text-slate-100 font-medium">Billing & Subscriptions</span>
                     </div>
 
+                    {/* Pending / Warning Banners */}
+                    {billingData?.status && billingData.status !== "active" && billingData.status !== "canceling" && (
+                        <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-4 text-red-500">
+                            <AlertTriangle className="w-6 h-6 shrink-0" />
+                            <div>
+                                <h4 className="font-bold text-sm">Subscription Attention Needed</h4>
+                                <p className="text-xs mt-1">Your subscription status is <strong>{billingData.status.replace("_", " ")}</strong>. Please update your payment method to restore full access to Pro features.</p>
+                            </div>
+                            <Button onClick={openPortal} className="ml-auto bg-red-500 hover:bg-red-600 text-white shadow-none text-xs h-8">Resolve Issue</Button>
+                        </div>
+                    )}
+
                     {/* Page Header */}
-                    <div className="mb-10">
-                        <h1 className="text-slate-900 dark:text-white text-4xl font-extrabold tracking-tight mb-2">Billing & Subscriptions</h1>
-                        <p className="text-slate-500 dark:text-slate-400 text-lg">Manage your workspace's financial health, usage, and scaling options.</p>
+                    <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+                        <div>
+                            <h1 className="text-slate-900 dark:text-white text-4xl font-extrabold tracking-tight mb-2">Billing & Subscriptions</h1>
+                            <p className="text-slate-500 dark:text-slate-400 text-lg">Manage your workspace's financial health, usage, and scaling options.</p>
+                        </div>
+                        {billingData?.plan === "pro" && (
+                            <Button
+                                variant="outline"
+                                onClick={openPortal}
+                                disabled={isPortalLoading}
+                                className="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white flex items-center gap-2 shadow-sm rounded-xl h-10 w-fit shrink-0"
+                            >
+                                <ExternalLink className="w-4 h-4" />
+                                {isPortalLoading ? "Opening..." : "Manage in Stripe"}
+                            </Button>
+                        )}
                     </div>
 
                     {/* Hero Section: Current Plan */}
@@ -72,36 +144,65 @@ export default function BillingPage() {
                         <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
                             <Activity className="w-32 h-32" />
                         </div>
-                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 relative z-10">
-                            <div className="flex flex-col gap-4">
+                        {isLoading ? (
+                            <div className="h-24 flex items-center justify-center text-slate-500 animate-pulse">Loading subscription details...</div>
+                        ) : (
+                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 relative z-10">
+                                <div className="flex flex-col gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Current Plan</span>
+                                        {billingData?.plan === "pro" ? (
+                                            <span className="bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-500/20 flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> PRO
+                                            </span>
+                                        ) : (
+                                            <span className="bg-slate-500/10 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold border border-slate-500/20 uppercase">
+                                                STARTER
+                                            </span>
+                                        )}
+                                    </div>
+                                    <h2 className="text-3xl font-bold text-slate-900 dark:text-white capitalize">
+                                        {billingData?.plan || "Starter"} Plan
+                                        {billingData?.plan === "pro" && (
+                                            <span className="text-slate-400 font-normal ml-2">
+                                                ({billingData.billingInterval === "yearly" ? "$470/yr" : "$49/mo"})
+                                            </span>
+                                        )}
+                                    </h2>
+                                    {billingData?.plan === "pro" && billingData.currentPeriodEnd && (
+                                        <div className="flex flex-wrap items-center gap-6">
+                                            <div className="flex items-center gap-2 text-slate-500">
+                                                <Calendar className="w-5 h-5" />
+                                                <span className="text-sm">
+                                                    {billingData.status === "canceling" ? "Ends on: " : "Next billing date: "}
+                                                    <strong>{new Date(billingData.currentPeriodEnd * 1000).toLocaleDateString()}</strong>
+                                                </span>
+                                            </div>
+                                            {billingData.card && (
+                                                <div className="flex items-center gap-2 text-slate-500">
+                                                    <CreditCard className="w-5 h-5" />
+                                                    <span className="text-sm capitalize">{billingData.card.brand} ending in <strong>{billingData.card.last4}</strong></span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="flex items-center gap-3">
-                                    <span className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Current Plan</span>
-                                    <span className="bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-500/20 flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ACTIVE
-                                    </span>
-                                </div>
-                                <h2 className="text-3xl font-bold text-slate-900 dark:text-white">Pro Plan <span className="text-slate-400 font-normal">($49/mo)</span></h2>
-                                <div className="flex flex-wrap items-center gap-6">
-                                    <div className="flex items-center gap-2 text-slate-500">
-                                        <Calendar className="w-5 h-5" />
-                                        <span className="text-sm">Next billing date: <strong>Oct 24, 2024</strong></span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-slate-500">
-                                        <CreditCard className="w-5 h-5" />
-                                        <span className="text-sm">Visa ending in <strong>4242</strong></span>
-                                    </div>
+                                    {billingData?.plan !== "pro" ? (
+                                        <Link href="/pricing">
+                                            <Button size="lg" className="bg-primary hover:bg-primary/90 text-white rounded-xl font-bold transition-all shadow-lg shadow-primary/20 flex items-center gap-2">
+                                                <ArrowUpCircle className="w-5 h-5" />
+                                                Upgrade to Pro
+                                            </Button>
+                                        </Link>
+                                    ) : (
+                                        <Button size="lg" variant="outline" className="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold transition-all border-slate-300 dark:border-slate-700">
+                                            Plan Details
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                                <Button size="lg" className="bg-primary hover:bg-primary/90 text-white rounded-xl font-bold transition-all shadow-lg shadow-primary/20 flex items-center gap-2">
-                                    <ArrowUpCircle className="w-5 h-5" />
-                                    Upgrade Plan
-                                </Button>
-                                <Button size="lg" variant="outline" className="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold transition-all border-slate-300 dark:border-slate-700">
-                                    Plan Details
-                                </Button>
-                            </div>
-                        </div>
+                        )}
                     </div>
 
                     {/* Main Grid Layout */}
@@ -161,38 +262,46 @@ export default function BillingPage() {
                                 </div>
                                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">Payment Method</h3>
                             </div>
-                            <div className="flex-1 flex flex-col justify-center gap-6">
+                            {billingData?.card ? (
                                 <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 p-6 text-white shadow-xl">
-                                    <div className="absolute top-0 right-0 p-4 opacity-20">
-                                        <CreditCard className="w-10 h-10" />
+                                    <div className="absolute top-0 right-0 p-4 opacity-20 capitalize text-8xl font-black -mr-4 -mt-6">
+                                        {billingData.card.brand}
                                     </div>
                                     <div className="mb-8">
-                                        <svg className="h-8 w-auto" fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M33.0763 35.152L33.0811 35.143L33.0763 35.152Z" fill="#FF5F00" stroke="#FF5F00"></path>
-                                            <path d="M15.1481 35.152C18.913 35.152 22.0494 32.1895 23.4727 28.1691C24.0152 26.637 24.3121 24.9926 24.3121 23.2842C24.3121 21.5758 24.0152 19.9314 23.4727 18.3993C22.0494 14.3789 18.913 11.4164 15.1481 11.4164C11.3833 11.4164 8.24683 14.3789 6.82348 18.3993C6.28098 19.9314 5.98413 21.5758 5.98413 23.2842C5.98413 24.9926 6.28098 26.637 6.82348 28.1691C8.24683 32.1895 11.3833 35.152 15.1481 35.152Z" fill="#EB001B"></path>
-                                            <path d="M32.8517 35.152C36.6166 35.152 39.753 32.1895 41.1764 28.1691C41.7188 26.637 42.0157 24.9926 42.0157 23.2842C42.0157 21.5758 41.7188 19.9314 41.1764 18.3993C39.753 14.3789 36.6166 11.4164 32.8517 11.4164C29.0868 11.4164 25.9504 14.3789 24.5271 18.3993C23.9846 19.9314 23.6877 21.5758 23.6877 23.2842C23.6877 24.9926 23.9846 26.637 24.5271 28.1691C25.9504 32.1895 29.0868 35.152 32.8517 35.152Z" fill="#F79E1B"></path>
-                                        </svg>
+                                        <CreditCard className="w-8 h-8 opacity-80" />
                                     </div>
-                                    <div className="text-lg font-mono tracking-widest mb-4">**** **** **** 4242</div>
+                                    <div className="text-lg font-mono tracking-widest mb-4">**** **** **** {billingData.card.last4}</div>
                                     <div className="flex justify-between items-end">
                                         <div>
-                                            <p className="text-[10px] uppercase text-slate-400 tracking-tighter">Card Holder</p>
-                                            <p className="text-sm font-semibold">Alex Rivera</p>
+                                            <p className="text-[10px] uppercase text-slate-400 tracking-tighter">Status</p>
+                                            <p className="text-sm font-semibold text-emerald-400">Active</p>
                                         </div>
                                         <div className="text-right">
                                             <p className="text-[10px] uppercase text-slate-400 tracking-tighter">Expires</p>
-                                            <p className="text-sm font-semibold">12/26</p>
+                                            <p className="text-sm font-semibold">{billingData.card.exp_month}/{billingData.card.exp_year}</p>
                                         </div>
                                     </div>
                                 </div>
+                            ) : (
+                                <div className="relative overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-6 flex flex-col items-center justify-center text-center h-[200px]">
+                                    <CreditCard className="w-10 h-10 text-slate-400 mb-3" />
+                                    <p className="text-slate-500 font-medium">No payment method connected.</p>
+                                    <p className="text-xs text-slate-400 mt-1">Upgrade to Pro to add billing details.</p>
+                                </div>
+                            )}
+                            {billingData?.plan === "pro" && (
                                 <div className="space-y-3">
-                                    <Button variant="outline" className="w-full bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold transition-all border-slate-300 dark:border-slate-700 flex items-center justify-center gap-2">
-                                        <Edit2 className="w-5 h-5" />
+                                    <Button
+                                        variant="outline"
+                                        onClick={openPortal}
+                                        disabled={isPortalLoading}
+                                        className="w-full bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold transition-all border-slate-300 dark:border-slate-700 flex items-center justify-center gap-2"
+                                    >
+                                        <Edit2 className="w-4 h-4" />
                                         Update Payment Method
                                     </Button>
-                                    <p className="text-center text-xs text-slate-500">Last updated Aug 12, 2024</p>
                                 </div>
-                            </div>
+                            )}
                         </div>
 
                         {/* Billing History Table */}
@@ -220,22 +329,30 @@ export default function BillingPage() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                                        {invoices.map((inv, idx) => (
-                                            <tr key={idx} className="hover:bg-primary/5 transition-colors group">
-                                                <td className="px-6 py-5 text-sm font-mono text-slate-900 dark:text-slate-100">{inv.id}</td>
-                                                <td className="px-6 py-5 text-sm text-slate-500">{inv.date}</td>
-                                                <td className="px-6 py-5 text-sm font-bold text-slate-900 dark:text-white">{inv.amount}</td>
-                                                <td className="px-6 py-5">
-                                                    <span className="px-2 py-1 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 uppercase">{inv.status}</span>
-                                                </td>
-                                                <td className="px-6 py-5 text-right">
-                                                    <button className="text-primary hover:text-primary/80 flex items-center gap-1 justify-end ml-auto group-hover:underline">
-                                                        <Download className="w-4 h-4" />
-                                                        <span className="text-xs font-bold uppercase">Download</span>
-                                                    </button>
+                                        {!billingData?.invoices || billingData.invoices.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-12 text-center text-slate-500 text-sm">
+                                                    No invoices available yet.
                                                 </td>
                                             </tr>
-                                        ))}
+                                        ) : (
+                                            billingData.invoices.map((inv, idx) => (
+                                                <tr key={idx} className="hover:bg-primary/5 transition-colors group">
+                                                    <td className="px-6 py-5 text-sm font-mono text-slate-900 dark:text-slate-100">{inv.id}</td>
+                                                    <td className="px-6 py-5 text-sm text-slate-500">{new Date(inv.date * 1000).toLocaleDateString()}</td>
+                                                    <td className="px-6 py-5 text-sm font-bold text-slate-900 dark:text-white">${(inv.amount / 100).toFixed(2)}</td>
+                                                    <td className="px-6 py-5">
+                                                        <span className="px-2 py-1 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 uppercase">{inv.status}</span>
+                                                    </td>
+                                                    <td className="px-6 py-5 text-right">
+                                                        <a href={inv.invoiceUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 flex items-center gap-1 justify-end ml-auto group-hover:underline w-fit">
+                                                            <Download className="w-4 h-4" />
+                                                            <span className="text-xs font-bold uppercase">Download</span>
+                                                        </a>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -252,9 +369,15 @@ export default function BillingPage() {
                             <Link className="hover:text-slate-900 dark:hover:text-white transition-colors" href="#">Terms of Service</Link>
                             <Link className="hover:text-slate-900 dark:hover:text-white transition-colors" href="#">Support Center</Link>
                         </div>
-                        <button className="text-slate-400 hover:text-red-500 text-xs font-medium uppercase tracking-widest transition-colors">
-                            Cancel Subscription
-                        </button>
+                        {billingData?.plan === "pro" && (
+                            <button
+                                onClick={openPortal}
+                                disabled={isPortalLoading}
+                                className="text-slate-400 hover:text-red-500 text-xs font-medium uppercase tracking-widest transition-colors disabled:opacity-50"
+                            >
+                                Cancel Subscription
+                            </button>
+                        )}
                     </div>
                 </main>
             </div>
