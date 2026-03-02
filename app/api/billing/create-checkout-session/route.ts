@@ -1,12 +1,33 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
+import { createClient } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
     try {
-        const { billingInterval, organizationId } = await req.json();
+        const { billingInterval } = await req.json();
+
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        const { data: member, error } = await supabase
+            .from("organization_members")
+            .select("organization_id")
+            .eq("user_id", user.id)
+            .single();
+
+        console.log("User id:", user.id);
+        console.log("Billing Interval passed:", billingInterval);
+        console.log("Member data:", member, "Error:", error);
+
+        const organizationId = member?.organization_id;
 
         if (!organizationId) {
-            return NextResponse.json({ error: "Organization ID is required" }, { status: 400 });
+            console.error("Failing with 400: User does not belong to an organization. Member data:", member);
+            return NextResponse.json({ error: "User does not belong to an organization" }, { status: 400 });
         }
 
         const priceId =
@@ -32,6 +53,11 @@ export async function POST(req: Request) {
             metadata: {
                 organizationId,
             },
+            subscription_data: {
+                metadata: {
+                    organizationId,
+                }
+            }
         });
 
         return NextResponse.json({ url: session.url });
