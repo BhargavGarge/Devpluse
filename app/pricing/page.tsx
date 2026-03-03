@@ -18,9 +18,6 @@ export default function PricingPage() {
         }
     }, []);
 
-    // TODO: Replace with real organization ID from auth context
-    const currentOrgId = "temp-org-id";
-
     async function upgradeToPro(interval: "monthly" | "yearly") {
         setIsLoading(true);
         try {
@@ -28,7 +25,6 @@ export default function PricingPage() {
                 method: "POST",
                 body: JSON.stringify({
                     billingInterval: interval,
-                    organizationId: currentOrgId,
                 }),
             });
             const data = await res.json();

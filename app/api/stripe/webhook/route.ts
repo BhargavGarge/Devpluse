@@ -1,9 +1,12 @@
+import Stripe from "stripe";
 import { headers } from "next/headers";
-import { stripe } from "@/lib/stripe";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Initialize a supabase client with the service role to bypass RLS in this backend webhook handler
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: "2024-06-20",
+});
+
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -11,84 +14,54 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
     const body = await req.text();
-    const headersList = await headers();
-    const signature = headersList.get("stripe-signature");
-
-    if (!signature) {
-        return new NextResponse("Missing stripe-signature header", { status: 400 });
-    }
+    const sig = (await headers()).get("stripe-signature")!;
 
     let event;
 
     try {
         event = stripe.webhooks.constructEvent(
             body,
-            signature,
+            sig,
             process.env.STRIPE_WEBHOOK_SECRET!
         );
     } catch (err: any) {
-        console.error(`Webhook signature verification failed: ${err.message}`);
-        return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 });
+        console.error("Webhook verification failed.", err);
+        return new Response(`Webhook Error: ${err.message}`, { status: 400 });
     }
 
-    try {
-        if (event.type === "checkout.session.completed") {
-            const session = event.data.object as any;
-            const organizationId = session.metadata?.organizationId;
+    if (event.type === "checkout.session.completed") {
+        const session = event.data.object as Stripe.Checkout.Session;
 
-            if (!organizationId) {
-                console.error("Missing organizationId in checkout session metadata");
-                return new NextResponse("Webhook handler requires organizationId in metadata", { status: 400 });
-            }
+        const subscriptionId = session.subscription as string;
+        const customerId = session.customer as string;
 
-            // Upsert the subscription row for the organization
-            const { error } = await supabase
-                .from("subscriptions")
-                .upsert(
-                    {
-                        organization_id: organizationId,
-                        stripe_customer_id: session.customer,
-                        stripe_subscription_id: session.subscription,
-                        plan: "pro",
-                        status: "active",
-                        // For a complete implementation, this interval could be passed in metadata or fetched from the line item price.
-                        billing_interval: session.amount_total > 10000 ? "yearly" : "monthly",
-                        updated_at: new Date().toISOString()
-                    },
-                    { onConflict: "organization_id" }
-                );
+        // Extract organizationId from metadata
+        const organizationId = session.metadata?.organizationId || session.client_reference_id;
 
-            if (error) {
-                console.error("Supabase upsert error:", error);
-                throw error;
-            }
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+        const planNickname = subscription.items.data[0].price.nickname || "pro";
+        const interval = subscription.items.data[0].price.recurring?.interval;
+
+        console.log(`Processing checkout for org: ${organizationId}, sub: ${subscription.id}`);
+
+        const { error } = await supabase.from("subscriptions").insert({
+            organization_id: organizationId,
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscription.id,
+            plan: planNickname,
+            billing_interval: interval,
+            status: subscription.status,
+            current_period_end: new Date(
+                subscription.current_period_end * 1000
+            ).toISOString(),
+        });
+
+        if (error) {
+            console.error("Error inserting subscription to supabase:", error);
+            return NextResponse.json({ error: "Database error" }, { status: 500 });
         }
-
-        if (
-            event.type === "customer.subscription.deleted" ||
-            event.type === "customer.subscription.canceled"
-        ) {
-            const subscription = event.data.object as any;
-
-            // Downgrade organization to starter
-            const { error } = await supabase
-                .from("subscriptions")
-                .update({
-                    plan: "starter",
-                    status: "canceled",
-                    updated_at: new Date().toISOString()
-                })
-                .eq("stripe_subscription_id", subscription.id);
-
-            if (error) {
-                console.error("Supabase downgrade update error:", error);
-                throw error;
-            }
-        }
-
-        return NextResponse.json({ received: true });
-    } catch (error: any) {
-        console.error(`Webhook handler error: ${error.message}`);
-        return new NextResponse("Internal Server Error", { status: 500 });
     }
+
+    return NextResponse.json({ received: true });
 }
