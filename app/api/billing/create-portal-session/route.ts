@@ -8,8 +8,8 @@ export async function POST() {
 
         // Context resolution for temp architecture
         const { data: { user } } = await supabase.auth.getUser();
-        let organizationId = "temp-org-id";
 
+        let organizationId = null;
         if (user) {
             const { data: member } = await supabase
                 .from("organization_members")
@@ -20,6 +20,10 @@ export async function POST() {
             if (member?.organization_id) {
                 organizationId = member.organization_id;
             }
+        }
+
+        if (!organizationId) {
+            return NextResponse.json({ error: "Organization ID could not be resolved" }, { status: 400 });
         }
 
         const { data: subscription } = await supabase
