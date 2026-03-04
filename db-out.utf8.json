@@ -1,0 +1,32 @@
+{
+  "orgs": {
+    "orgs": [
+      {
+        "id": "14c81481-5ce5-495e-908c-f3671e11773a",
+        "name": "BhargavGarge's Team",
+        "created_at": "2026-02-27T10:33:34.403985+00:00"
+      }
+    ],
+    "orgsError": null
+  },
+  "members": {
+    "members": [
+      {
+        "organization_id": "14c81481-5ce5-495e-908c-f3671e11773a",
+        "user_id": "8796533c-6e7f-462f-9009-5fa0ef9078c1",
+        "role": "owner",
+        "created_at": "2026-02-27T10:33:34.403985+00:00"
+      }
+    ],
+    "membersError": null
+  },
+  "users": {
+    "users": [
+      {
+        "id": "8796533c-6e7f-462f-9009-5fa0ef9078c1",
+        "email": "bhargaavvv@gmail.com"
+      }
+    ],
+    "usersError": null
+  }
+}
