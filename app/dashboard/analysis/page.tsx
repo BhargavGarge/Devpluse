@@ -34,7 +34,7 @@ export default function AIAnalysisProgress() {
 
             <div className="relative z-10 flex h-screen w-full flex-col">
                 {/* Top Navigation Bar */}
-                <header className="flex items-center justify-between px-8 py-4 border-b border-slate-200 dark:border-white/10 bg-white/50 dark:bg-white/5 backdrop-blur-md">
+                <header className="flex items-center justify-between px-8 py-4 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-[#151022]">
                     <div className="flex items-center gap-3">
                         <div className="size-8 text-primary flex items-center justify-center">
                             <Sparkles className="w-6 h-6" />

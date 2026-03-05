@@ -77,7 +77,7 @@ export default async function DashboardEmptyState() {
             {/* Main Content Area */}
             <main className="flex-1 flex flex-col h-screen relative z-10">
                 {/* Top Header */}
-                <header className="h-20 border-b border-slate-200 dark:border-primary/10 flex items-center justify-between px-10 bg-white/50 dark:bg-[#151022]/60 backdrop-blur-md">
+                <header className="h-20 border-b border-slate-200 dark:border-primary/10 flex items-center justify-between px-10 bg-white dark:bg-[#151022]">
                     <div className="flex items-center gap-4 flex-1">
                         <div className="relative w-full max-w-md">
                             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
@@ -144,10 +144,10 @@ export default async function DashboardEmptyState() {
                                     </Link>
 
                                     <div className="flex items-center gap-4">
-                                        <button className="flex items-center gap-2 text-sm text-slate-500 hover:text-primary transition-colors">
+                                        <Link href="/demo" className="flex items-center gap-2 text-sm text-slate-500 hover:text-primary transition-colors">
                                             <Eye className="w-4 h-4" />
                                             View Demo Data
-                                        </button>
+                                        </Link>
                                         <span className="text-slate-300 dark:text-slate-700">|</span>
                                         <button className="flex items-center gap-2 text-sm text-slate-500 hover:text-primary transition-colors">
                                             <HelpCircle className="w-4 h-4" />
