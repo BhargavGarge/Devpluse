@@ -92,7 +92,7 @@ export default function DemoPage() {
             {/* Main Content Area */}
             <main className="flex-1 flex flex-col h-screen overflow-y-auto relative">
                 {/* Header */}
-                <header className="w-full border-b border-slate-200 dark:border-primary/10 bg-white/80 dark:bg-[#151022]/80 backdrop-blur-md sticky top-0 z-10 px-10 py-4 flex items-center justify-between pointer-events-none">
+                <header className="w-full border-b border-slate-200 dark:border-primary/10 bg-white dark:bg-[#151022] sticky top-0 z-10 px-10 py-4 flex items-center justify-between pointer-events-none">
                     <div>
                         <h2 className="text-xl font-bold">Pull Request Review Analytics</h2>
                         <p className="text-sm text-slate-500 dark:text-slate-400">Deep dive into your team's code review discipline (Demo Data)</p>

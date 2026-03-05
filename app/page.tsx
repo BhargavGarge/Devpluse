@@ -8,11 +8,15 @@ import { DashboardMockup } from "@/components/DashboardMockup";
 import ClientFeedback from "@/components/ui/testimonial";
 import { CTA } from "@/components/CTA";
 import { Footer } from "@/components/Footer";
-import { BadgeCheck, ArrowRight } from "lucide-react";
+import { BadgeCheck, ArrowRight, Router } from "lucide-react";
 import Link from "next/link";
 
+import { useRouter } from "next/navigation";
+
 export default function Home() {
+  const router = useRouter();
   const handlePrimaryClick = () => {
+    router.push("/demo");
     // Navigate or trigger action
   };
 
@@ -37,10 +41,16 @@ export default function Home() {
             primary: {
               text: "Get Started Free",
               icon: <ArrowRight className="w-5 h-5" />,
-              onClick: handlePrimaryClick,
+              // onClick: handlePrimaryClick,
             },
             secondary: {
-              text: "View Demo"
+              text: "View Demo",
+              onClick: handlePrimaryClick,
+
+
+
+
+
             }
           }}
         >

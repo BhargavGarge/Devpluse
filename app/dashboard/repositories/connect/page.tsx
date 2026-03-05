@@ -106,7 +106,7 @@ export default function RepositorySelection() {
             <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-primary/5 blur-[100px] rounded-full pointer-events-none z-0"></div>
 
             {/* Top Navigation */}
-            <header className="w-full border-b border-slate-200 dark:border-primary/20 px-6 py-4 flex items-center justify-between bg-white/50 dark:bg-white/5 backdrop-blur-md sticky top-0 z-50">
+            <header className="w-full border-b border-slate-200 dark:border-primary/20 px-6 py-4 flex items-center justify-between bg-white dark:bg-[#151022] sticky top-0 z-50">
                 <div className="flex items-center gap-3">
                     <div className="bg-primary p-1.5 rounded-lg flex items-center justify-center">
                         <Database className="text-white w-6 h-6" />
