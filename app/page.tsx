@@ -34,7 +34,7 @@ export default function Home() {
           }}
           headline={{
             line1: "AI-Powered",
-            line2: "Engineering Intelligence"
+            line2: " The Engineering Intelligence"
           }}
           subtitle="Unlock the full potential of your development team with calm, data-driven insights. No noise, just clarity for high-performing organizations."
           buttons={{
