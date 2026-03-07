@@ -1,0 +1,693 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import {
+    Users, LayoutDashboard, BarChart2, GitPullRequest, Settings as SettingsIcon,
+    SearchIcon, Bell, Database, Plus, ChevronLeft, MoreHorizontal,
+    Mail, Shield, ShieldAlert, Monitor, CircleDashed, Trash2, Code2, Clock, Pencil, AlertTriangle
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { createTeamAction, inviteMemberAction, assignRepoAction, updateTeamAction, deleteTeamAction, removeMemberAction } from "./actions";
+
+// Types
+export type TeamMemberInfo = {
+    id: string;
+    name: string;
+    handle: string;
+    role: string;
+    avatar: string;
+};
+
+export type AssignedRepoInfo = {
+    id: string;
+    name: string;
+    language: string;
+    health: number;
+    lastAnalyzed: string;
+};
+
+export type TeamData = {
+    id: string;
+    name: string;
+    color: string;
+    description: string;
+    createdAt: string;
+    members: TeamMemberInfo[];
+    repos: AssignedRepoInfo[];
+    health: number;
+};
+
+export type WorkspaceRepo = {
+    id: string;
+    name: string;
+};
+
+interface TeamsClientProps {
+    teams: TeamData[];
+    workspaceRepos: WorkspaceRepo[];
+    currentUser: { name: string; role: string; avatar: string };
+}
+
+export default function TeamsClient({ teams, workspaceRepos, currentUser }: TeamsClientProps) {
+    // State
+    const [activeView, setActiveView] = useState<"overview" | "detail">("overview");
+    const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isInviteOpen, setIsInviteOpen] = useState(false);
+    const [isEditOpen, setIsEditOpen] = useState(false);
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+
+    // Form submission states
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // Derived state
+    const selectedTeam = teams.find(t => t.id === selectedTeamId) || null;
+
+    // Handlers
+    const handleViewTeam = (id: string) => {
+        setSelectedTeamId(id);
+        setActiveView("detail");
+    };
+
+    const handleBack = () => {
+        setActiveView("overview");
+        setSelectedTeamId(null);
+    };
+
+    // Server Action wrappers
+    const handleCreateTeam = async (formData: FormData) => {
+        setIsSubmitting(true);
+        try {
+            await createTeamAction(formData);
+            setIsModalOpen(false);
+        } catch (error) {
+            console.error("Failed to create team", error);
+            alert("Failed to create team");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleInviteMember = async (formData: FormData) => {
+        if (!selectedTeamId) return;
+        setIsSubmitting(true);
+        try {
+            await inviteMemberAction(selectedTeamId, formData);
+            setIsInviteOpen(false);
+        } catch (error) {
+            console.error("Failed to invite member", error);
+            alert("Failed to invite member");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleUpdateTeam = async (formData: FormData) => {
+        if (!selectedTeamId) return;
+        setIsSubmitting(true);
+        try {
+            await updateTeamAction(selectedTeamId, formData);
+            setIsEditOpen(false);
+        } catch (error) {
+            console.error("Failed to update team", error);
+            alert("Failed to update team");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleDeleteTeam = async () => {
+        if (!selectedTeamId) return;
+        setIsSubmitting(true);
+        try {
+            await deleteTeamAction(selectedTeamId);
+            setIsDeleteOpen(false);
+            setActiveView("overview");
+            setSelectedTeamId(null);
+        } catch (error) {
+            console.error("Failed to delete team", error);
+            alert("Failed to delete team");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleRemoveMember = async (memberId: string) => {
+        if (!selectedTeamId) return;
+        if (!confirm("Are you sure you want to remove this member?")) return;
+        try {
+            await removeMemberAction(selectedTeamId, memberId);
+        } catch (error) {
+            console.error("Failed to remove member", error);
+            alert("Failed to remove member");
+        }
+    };
+
+    // Helper components
+    const HealthRing = ({ score, size = 16 }: { score: number, size?: number }) => {
+        const colorClass = score > 75 ? "text-emerald-500" : score >= 50 ? "text-amber-500" : "text-red-500";
+        const circumference = 2 * Math.PI * (size / 2 - 2);
+        const strokeDashoffset = circumference - (score / 100) * circumference;
+
+        return (
+            <div className={`relative flex items-center justify-center`} style={{ width: size, height: size }}>
+                <svg className="transform -rotate-90 w-full h-full">
+                    <circle cx="50%" cy="50%" r="40%" stroke="currentColor" strokeWidth="10%" fill="transparent" className="text-slate-200 dark:text-slate-800" />
+                    <circle
+                        cx="50%" cy="50%" r="40%"
+                        stroke="currentColor"
+                        strokeWidth="10%"
+                        fill="transparent"
+                        strokeDasharray={circumference}
+                        strokeDashoffset={strokeDashoffset}
+                        className={`transition-all duration-1000 ease-out ${colorClass}`}
+                        strokeLinecap="round"
+                    />
+                </svg>
+                <span className="absolute text-[10px] font-bold text-slate-700 dark:text-slate-300">{score || 0}</span>
+            </div>
+        );
+    };
+
+    const RoleBadge = ({ role }: { role: string }) => {
+        const colors: Record<string, string> = {
+            "Owner": "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400 border-blue-200 dark:border-blue-500/20",
+            "Reviewer": "bg-purple-100 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400 border-purple-200 dark:border-purple-500/20",
+            "Viewer": "bg-slate-100 text-slate-700 dark:bg-slate-500/10 dark:text-slate-400 border-slate-200 dark:border-slate-500/20"
+        };
+        return (
+            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${colors[role] || colors["Viewer"]}`}>
+                {role}
+            </span>
+        );
+    };
+
+    const LangDot = ({ lang }: { lang: string }) => {
+        const colors: Record<string, string> = {
+            "TypeScript": "bg-blue-400",
+            "JavaScript": "bg-yellow-400",
+            "React": "bg-cyan-400",
+            "Python": "bg-blue-500",
+            "Go": "bg-cyan-500"
+        };
+        return <span className={`size-2 rounded-full ${colors[lang] || "bg-slate-400"}`} />;
+    };
+
+    return (
+        <div className="bg-background-light dark:bg-[#0a0a0c] text-slate-900 dark:text-slate-100 min-h-screen flex overflow-hidden font-display">
+            {/* Sidebar Navigation */}
+            <aside className="w-72 bg-white dark:bg-[#151022] border-r border-slate-200 dark:border-primary/10 flex flex-col h-screen sticky top-0 z-20">
+                <div className="p-6 flex items-center gap-3">
+                    <div className="size-10 bg-primary rounded-lg flex items-center justify-center shadow-[0_0_40px_rgba(91,43,238,0.2)]">
+                        <Database className="text-white w-6 h-6" />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">DevPulse</h1>
+                        <p className="text-xs text-primary font-medium uppercase tracking-widest">Engineering AI</p>
+                    </div>
+                </div>
+
+                <nav className="flex-1 px-4 mt-6 space-y-2">
+                    <Link href="/dashboard" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
+                        <LayoutDashboard className="w-5 h-5" />
+                        <span className="font-medium">Dashboard</span>
+                    </Link>
+                    <Link href="/dashboard/reports" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
+                        <BarChart2 className="w-5 h-5" />
+                        <span className="font-medium">Reports</span>
+                    </Link>
+                    <Link href="/dashboard/pr-insights" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
+                        <GitPullRequest className="w-5 h-5" />
+                        <span className="font-medium">PR Insights</span>
+                    </Link>
+                    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 text-primary">
+                        <Users className="w-5 h-5" />
+                        <span className="font-medium">Teams</span>
+                    </div>
+                    <Link href="/settings" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
+                        <SettingsIcon className="w-5 h-5" />
+                        <span className="font-medium">Settings</span>
+                    </Link>
+                </nav>
+                <div className="p-4 mt-auto">
+                    <div className="bg-slate-50 dark:bg-[#151022]/60 dark:backdrop-blur-md border border-slate-200 dark:border-primary/10 p-4 rounded-xl space-y-3">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Need help getting started?</p>
+                        <Button variant="outline" className="w-full border-primary/30 text-primary hover:bg-primary/10 transition-colors">
+                            View Documentation
+                        </Button>
+                    </div>
+                </div>
+            </aside>
+
+            {/* Main Content Area */}
+            <main className="flex-1 flex flex-col h-screen relative z-10 overflow-y-auto">
+                {/* Top Header */}
+                <header className="h-20 border-b border-slate-200 dark:border-primary/10 flex items-center justify-between px-10 bg-white dark:bg-[#151022] sticky top-0 z-10 shrink-0">
+                    <div className="flex items-center gap-4 flex-1">
+                        <div className="relative w-full max-w-md">
+                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
+                            <input
+                                className="w-full bg-slate-100 dark:bg-[#0a0a0c]/50 border border-slate-200 dark:border-primary/10 rounded-lg pl-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent dark:text-white"
+                                placeholder="Search teams or people..."
+                                type="text"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-6">
+                        <button className="relative text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">
+                            <Bell className="w-6 h-6" />
+                            <span className="absolute top-0 right-0 size-2.5 bg-primary rounded-full border-2 border-background-light dark:border-background-dark"></span>
+                        </button>
+                        <div className="flex items-center gap-3 border-l border-slate-200 dark:border-primary/10 pl-6">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">{currentUser.name}</p>
+                                <p className="text-[10px] text-slate-500 uppercase tracking-tighter">{currentUser.role}</p>
+                            </div>
+                            <div className="size-10 rounded-full bg-primary/20 border border-primary/40 p-0.5">
+                                <img className="rounded-full w-full h-full object-cover" alt="User profile" src={currentUser.avatar} />
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <div className="flex-1 p-10 w-full max-w-7xl mx-auto space-y-8">
+                    {activeView === "overview" && (
+                        <>
+                            {/* Teams Overview Header */}
+                            <div className="flex items-end justify-between">
+                                <div>
+                                    <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white mb-2">Teams</h2>
+                                    <p className="text-slate-500 dark:text-slate-400">Organize engineers and track collective repo health</p>
+                                </div>
+                                <Button
+                                    onClick={() => setIsModalOpen(true)}
+                                    className="bg-primary hover:bg-primary/90 text-white font-bold shadow-[0_0_20px_rgba(91,43,238,0.3)] transition-all hover:scale-105"
+                                >
+                                    <Plus className="w-4 h-4 mr-2" /> Create Team
+                                </Button>
+                            </div>
+
+                            {/* Teams Grid */}
+                            {teams.length > 0 ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {teams.map((team) => (
+                                        <div
+                                            key={team.id}
+                                            className="bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-[rgba(255,255,255,0.06)] rounded-2xl p-6 shadow-sm hover:border-primary/50 hover:shadow-md transition-all group flex flex-col"
+                                        >
+                                            <div className="flex items-start justify-between mb-6">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`size-12 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-inner ${team.color}`}>
+                                                        {team.name.charAt(0)}
+                                                    </div>
+                                                    <div>
+                                                        <h3 className="font-bold text-lg text-slate-900 dark:text-white group-hover:text-primary transition-colors">{team.name}</h3>
+                                                        <p className="text-sm text-slate-500">{team.members.length} members</p>
+                                                    </div>
+                                                </div>
+                                                <div className="p-2">
+                                                    <HealthRing score={team.health} size={48} />
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-auto pt-6 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                                <div className="flex items-center gap-2 text-sm text-slate-500">
+                                                    <Code2 className="w-4 h-4" /> {team.repos.length} repos
+                                                </div>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleViewTeam(team.id)}
+                                                    className="text-primary hover:bg-primary/10 group-hover:translate-x-1 transition-transform"
+                                                >
+                                                    View Team
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center p-20 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-3xl mt-10">
+                                    <div className="size-24 bg-primary/10 rounded-full flex items-center justify-center mb-6">
+                                        <Users className="w-10 h-10 text-primary" />
+                                    </div>
+                                    <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">No teams yet</h3>
+                                    <p className="text-slate-500 mb-8 max-w-sm mx-auto">Create one to start collaborating and tracking collective repository health.</p>
+                                    <Button onClick={() => setIsModalOpen(true)} className="bg-primary text-white">
+                                        <Plus className="w-4 h-4 mr-2" /> Create Team
+                                    </Button>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {activeView === "detail" && selectedTeam && (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {/* Detail Header */}
+                            <div className="mb-8">
+                                <button onClick={handleBack} className="flex items-center gap-2 text-sm text-slate-500 hover:text-primary transition-colors mb-6 group">
+                                    <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> Back to Teams
+                                </button>
+                                <div className="flex items-start justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`size-16 rounded-2xl flex items-center justify-center text-white font-bold text-3xl shadow-lg shadow-${selectedTeam.color.replace('bg-', '')}/30 ${selectedTeam.color}`}>
+                                            {selectedTeam.name.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-3">
+                                                <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">{selectedTeam.name}</h2>
+                                                <button onClick={() => setIsEditOpen(true)} className="text-slate-400 hover:text-primary transition-colors focus:outline-none" title="Edit Team">
+                                                    <Pencil className="w-5 h-5" />
+                                                </button>
+                                                <button className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                                                    <SettingsIcon className="w-5 h-5" />
+                                                </button>
+                                            </div>
+                                            <p className="text-slate-500 flex items-center gap-2 mt-1">
+                                                <span>{selectedTeam.members.length} members</span>
+                                                <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                                <span>Created {new Date(selectedTeam.createdAt).toLocaleDateString()}</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-1">
+                                        <span className="text-sm text-slate-500 font-medium">Avg Health Score</span>
+                                        <div className="flex items-center gap-3 bg-white dark:bg-[#1a1a1e] px-4 py-2 rounded-xl border border-slate-200 dark:border-[rgba(255,255,255,0.06)] shadow-sm">
+                                            <HealthRing score={selectedTeam.health} size={32} />
+                                            <span className={`text-xl font-bold ${selectedTeam.health > 75 ? 'text-emerald-500' : selectedTeam.health >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
+                                                {selectedTeam.health || 0}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 2-Column Layout */}
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                                {/* Left Column: Members */}
+                                <div className="lg:col-span-5 space-y-6">
+                                    <div className="bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-[rgba(255,255,255,0.06)] rounded-2xl p-6 shadow-sm">
+                                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
+                                            <Users className="w-5 h-5 text-primary" /> Team Members
+                                        </h3>
+
+                                        <div className="space-y-4 mb-6">
+                                            {selectedTeam.members.map((member) => (
+                                                <div key={member.id} className="group flex items-center justify-between p-3 -mx-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                                    <div className="flex items-center gap-3">
+                                                        <img src={member.avatar || "https://github.com/shadcn.png"} alt={member.name} className="w-10 h-10 rounded-full border border-slate-200 dark:border-slate-800" />
+                                                        <div>
+                                                            <p className="font-medium text-sm text-slate-900 dark:text-white leading-tight">{member.name}</p>
+                                                            <p className="text-xs text-slate-500">{member.handle}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <RoleBadge role={member.role} />
+                                                        {member.role !== "Owner" && (
+                                                            <button
+                                                                onClick={() => handleRemoveMember(member.id)}
+                                                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all focus:outline-none focus:opacity-100 ml-2"
+                                                                title="Remove Member"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {isInviteOpen ? (
+                                            <form action={handleInviteMember} className="p-4 bg-slate-50 dark:bg-[#151022] rounded-xl border border-slate-200 dark:border-primary/20 space-y-3 animate-in fade-in slide-in-from-top-2">
+                                                <input
+                                                    name="handle"
+                                                    type="text"
+                                                    placeholder="Developer's Github Username"
+                                                    className="w-full bg-white dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                    required
+                                                />
+                                                <div className="flex items-center gap-2">
+                                                    <select name="role" className="flex-1 bg-white dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                                        <option value="Viewer">Viewer</option>
+                                                        <option value="Reviewer">Reviewer</option>
+                                                        <option value="Owner">Owner</option>
+                                                    </select>
+                                                    <Button type="submit" size="sm" className="bg-primary text-white" disabled={isSubmitting}>
+                                                        {isSubmitting ? "..." : "Send"}
+                                                    </Button>
+                                                    <Button type="button" variant="ghost" size="sm" onClick={() => setIsInviteOpen(false)}>Cancel</Button>
+                                                </div>
+                                            </form>
+                                        ) : (
+                                            <Button
+                                                variant="outline"
+                                                className="w-full border-dashed border-2 hover:border-primary hover:text-primary hover:bg-primary/5 transition-all"
+                                                onClick={() => setIsInviteOpen(true)}
+                                            >
+                                                <Mail className="w-4 h-4 mr-2" /> Invite Member
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Right Column: Repos & Activity */}
+                                <div className="lg:col-span-7 space-y-6">
+                                    <div className="bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-[rgba(255,255,255,0.06)] rounded-2xl p-6 shadow-sm">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <h3 className="font-bold text-lg flex items-center gap-2">
+                                                <Code2 className="w-5 h-5 text-primary" /> Assigned Repos
+                                            </h3>
+                                        </div>
+
+                                        <form action={async (formData) => {
+                                            if (!selectedTeamId) return;
+                                            setIsSubmitting(true);
+                                            try {
+                                                await assignRepoAction(selectedTeamId, formData);
+                                            } catch (e) {
+                                                alert("Failed to assign");
+                                            } finally {
+                                                setIsSubmitting(false);
+                                            }
+                                        }} className="flex items-center gap-3 mb-6">
+                                            <select name="repo_id" className="flex-1 bg-slate-50 dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                                <option value="">Map additional repo...</option>
+                                                {workspaceRepos.filter(wr => !selectedTeam.repos.some(tr => tr.id === wr.id)).map(r => (
+                                                    <option value={r.id} key={r.id}>{r.name}</option>
+                                                ))}
+                                            </select>
+                                            <Button type="submit" variant="outline" size="sm" className="h-[38px]" disabled={isSubmitting}>Assign Repo</Button>
+                                        </form>
+
+                                        {selectedTeam.repos.length === 0 ? (
+                                            <div className="text-center py-6 text-slate-500 text-sm">No repositories assigned yet.</div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                {selectedTeam.repos.map(repo => (
+                                                    <div key={repo.id} className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-primary/30 transition-colors group cursor-pointer">
+                                                        <div className="flex items-start justify-between mb-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <Database className="w-5 h-5 text-slate-400 group-hover:text-primary transition-colors" />
+                                                                <span className="font-semibold text-sm">{repo.name}</span>
+                                                            </div>
+                                                            <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${repo.health >= 75 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                                                                {repo.health}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center justify-between mt-auto pt-2 text-xs text-slate-500">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <LangDot lang={repo.language} />
+                                                                {repo.language}
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <Clock className="w-3 h-3" />
+                                                                {repo.lastAnalyzed}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Danger Zone: Delete Team */}
+                            <div className="mt-12 pt-8 border-t border-red-500/20 flex flex-col items-center justify-center text-center">
+                                <h3 className="text-red-500 font-bold mb-2">Danger Zone</h3>
+                                <p className="text-slate-500 text-sm mb-4">Deleting a team cannot be undone. All member assignments and repository mappings will be removed.</p>
+                                <Button
+                                    variant="outline"
+                                    className="border-red-500/50 text-red-500 hover:bg-red-500/10 hover:border-red-500 transition-colors"
+                                    onClick={() => setIsDeleteOpen(true)}
+                                >
+                                    <Trash2 className="w-4 h-4 mr-2" /> Delete Team
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Decorative background elements */}
+                <div className="absolute bottom-0 right-0 w-1/3 h-1/3 bg-primary/5 blur-[120px] -z-10 rounded-full pointer-events-none"></div>
+                <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-primary/10 blur-[100px] -z-10 rounded-full pointer-events-none"></div>
+            </main>
+
+            {/* Create Team Modal */}
+            {isModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setIsModalOpen(false)} />
+                    <div className="relative bg-white dark:bg-[#1a1a1e] w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-xl font-bold">Create New Team</h3>
+                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                                <Plus className="w-5 h-5 rotate-45" />
+                            </button>
+                        </div>
+
+                        <form action={handleCreateTeam}>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5">Team Name</label>
+                                    <input
+                                        name="name"
+                                        type="text"
+                                        placeholder="e.g. Platform Engineering"
+                                        required
+                                        className="w-full bg-slate-50 dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5">Color</label>
+                                    <div className="flex gap-2">
+                                        {["bg-blue-500", "bg-purple-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500", "bg-cyan-500"].map((color) => (
+                                            <label key={color} className={`size-8 rounded-full ${color} ring-2 ring-offset-2 ring-offset-white dark:ring-offset-[#1a1a1e] ring-transparent hover:ring-primary/50 transition-all cursor-pointer has-[:checked]:ring-primary`}>
+                                                <input type="radio" name="color" value={color} className="sr-only" defaultChecked={color === "bg-blue-500"} />
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5">Description <span className="text-slate-400 font-normal">(Optional)</span></label>
+                                    <textarea
+                                        name="description"
+                                        rows={3}
+                                        placeholder="What does this team focus on?"
+                                        className="w-full bg-slate-50 dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5">Assign Repositories (Optional)</label>
+                                    <select name="repos" multiple className="w-full bg-slate-50 dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary text-slate-500 h-24">
+                                        {workspaceRepos.map(repo => (
+                                            <option value={repo.id} key={repo.id}>{repo.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-end gap-3 mt-8">
+                                <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+                                <Button type="submit" className="bg-primary text-white" disabled={isSubmitting}>
+                                    {isSubmitting ? "Creating..." : "Create Team"}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Team Modal */}
+            {isEditOpen && selectedTeam && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setIsEditOpen(false)} />
+                    <div className="relative bg-white dark:bg-[#1a1a1e] w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-xl font-bold">Edit Team</h3>
+                            <button onClick={() => setIsEditOpen(false)} className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                                <Plus className="w-5 h-5 rotate-45" />
+                            </button>
+                        </div>
+
+                        <form action={handleUpdateTeam}>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5">Team Name</label>
+                                    <input
+                                        name="name"
+                                        type="text"
+                                        defaultValue={selectedTeam.name}
+                                        required
+                                        className="w-full bg-slate-50 dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5">Color</label>
+                                    <div className="flex gap-2">
+                                        {["bg-blue-500", "bg-purple-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500", "bg-cyan-500"].map((color) => (
+                                            <label key={color} className={`size-8 rounded-full ${color} ring-2 ring-offset-2 ring-offset-white dark:ring-offset-[#1a1a1e] ring-transparent hover:ring-primary/50 transition-all cursor-pointer has-[:checked]:ring-primary`}>
+                                                <input type="radio" name="color" value={color} className="sr-only" defaultChecked={color === selectedTeam.color} />
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1.5">Description <span className="text-slate-400 font-normal">(Optional)</span></label>
+                                    <textarea
+                                        name="description"
+                                        rows={3}
+                                        defaultValue={selectedTeam.description}
+                                        placeholder="What does this team focus on?"
+                                        className="w-full bg-slate-50 dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-end gap-3 mt-8">
+                                <Button type="button" variant="ghost" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+                                <Button type="submit" className="bg-primary text-white" disabled={isSubmitting}>
+                                    {isSubmitting ? "Saving..." : "Save Changes"}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Team Confirmation Modal */}
+            {isDeleteOpen && selectedTeam && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setIsDeleteOpen(false)} />
+                    <div className="relative bg-white dark:bg-[#1a1a1e] w-full max-w-sm rounded-2xl shadow-2xl border border-red-200 dark:border-red-900/30 p-6 animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="size-16 bg-red-100 dark:bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-2">
+                                <AlertTriangle className="w-8 h-8" />
+                            </div>
+                            <h3 className="text-xl font-bold">Delete {selectedTeam.name}?</h3>
+                            <p className="text-sm text-slate-500">
+                                This action cannot be undone. You will lose the team grouping, but the underlying repositories and user accounts will remain safe.
+                            </p>
+                            <div className="flex items-center gap-3 w-full mt-6">
+                                <Button type="button" variant="ghost" className="flex-1" onClick={() => setIsDeleteOpen(false)}>Cancel</Button>
+                                <Button
+                                    onClick={handleDeleteTeam}
+                                    className="flex-1 bg-red-500 hover:bg-red-600 text-white border-0 shadow-lg shadow-red-500/20"
+                                    disabled={isSubmitting}
+                                >
+                                    {isSubmitting ? "Deleting..." : "Yes, Delete Team"}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
