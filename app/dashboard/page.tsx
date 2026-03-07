@@ -51,7 +51,7 @@ export default async function DashboardEmptyState() {
                         <GitPullRequest className="w-5 h-5" />
                         <span className="font-medium">PR Insights</span>
                     </Link>
-                    <Link href="#" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
+                    <Link href="/dashboard/teams" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/5 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer">
                         <Users className="w-5 h-5" />
                         <span className="font-medium">Teams</span>
                     </Link>
