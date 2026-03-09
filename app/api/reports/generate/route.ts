@@ -325,6 +325,100 @@ export async function POST(request: Request) {
             throw insertError;
         }
 
+        // 7. Generate Team Alerts if applicable
+        console.log(`[Generate Report] Checking for alert triggers for ${fullName}...`);
+
+        // Find the previous report for comparison
+        const { data: previousReport } = await supabase
+            .from('reports')
+            .select('score, metrics_snapshot')
+            .eq('repository_id', repository_id)
+            .neq('id', newReport.id) // Exclude the one we just made
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (previousReport) {
+            const previousScore = previousReport.score;
+            const previousDeps = previousReport.metrics_snapshot?.dependencies || 0;
+            const currentDeps = metricsSnapshot.dependencies || 0;
+
+            const scoreDrop = previousScore - score;
+            const depSpike = currentDeps - previousDeps;
+
+            let alertsToCreate = [];
+
+            if (scoreDrop >= 10) {
+                alertsToCreate.push({
+                    type: 'health_drop',
+                    title: `Health Score Dropped by ${scoreDrop} points`,
+                    message: `The engineering health score for ${repoInfo.name} fell from ${previousScore} to ${score}. Check the latest report.`
+                });
+            }
+
+            if (depSpike >= 5) {
+                alertsToCreate.push({
+                    type: 'dependency_spike',
+                    title: `Dependency Spike Detected`,
+                    message: `${repoInfo.name} added ${depSpike} new dependencies since the last report. Watch out for maintenance overhead.`
+                });
+            }
+
+            // If we have alerts, we need to map them to the teams that own this repo
+            if (alertsToCreate.length > 0) {
+                const { data: teamRepos } = await supabase
+                    .from('team_repos')
+                    .select('team_id')
+                    .eq('repo_id', repository_id);
+
+                if (teamRepos && teamRepos.length > 0) {
+                    const alertInserts = [];
+                    const activityInserts = [];
+
+                    for (const tr of teamRepos) {
+                        for (const alert of alertsToCreate) {
+                            alertInserts.push({
+                                team_id: tr.team_id,
+                                repository_id: repository_id,
+                                title: alert.title,
+                                type: alert.type,
+                                message: alert.message
+                            });
+
+                            activityInserts.push({
+                                team_id: tr.team_id,
+                                activity_type: 'alert_triggered',
+                                description: `System triggered a ${alert.type} alert for ${repoInfo.name}: ${alert.title}`
+                            });
+                        }
+                    }
+
+                    if (alertInserts.length > 0) {
+                        await supabase.from('team_alerts').insert(alertInserts);
+                        console.log(`[Generate Report] Inserted ${alertInserts.length} team alerts.`);
+                    }
+                    if (activityInserts.length > 0) {
+                        await supabase.from('team_activity').insert(activityInserts);
+                    }
+                }
+            }
+        }
+
+        // 8. Log Repo Analysis completion to team activity
+        const { data: globalTeamRepos } = await supabase
+            .from('team_repos')
+            .select('team_id')
+            .eq('repo_id', repository_id);
+
+        if (globalTeamRepos && globalTeamRepos.length > 0) {
+            const analysisActivities = globalTeamRepos.map(tr => ({
+                team_id: tr.team_id,
+                activity_type: 'repo_analysis',
+                description: `New health report generated for ${repoInfo.name} with a score of ${score}`
+            }));
+            await supabase.from('team_activity').insert(analysisActivities);
+        }
+
         return NextResponse.json({ report: newReport });
     } catch (error: any) {
         console.error('[Generate Report] CRITICAL ERROR:', error);

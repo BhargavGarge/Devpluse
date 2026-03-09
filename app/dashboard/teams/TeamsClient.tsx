@@ -8,7 +8,7 @@ import {
     Mail, Shield, ShieldAlert, Monitor, CircleDashed, Trash2, Code2, Clock, Pencil, AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { createTeamAction, inviteMemberAction, assignRepoAction, updateTeamAction, deleteTeamAction, removeMemberAction } from "./actions";
+import { createTeamAction, inviteMemberAction, assignRepoAction, updateTeamAction, deleteTeamAction, removeMemberAction, scanTeamRiskAction, revokeInviteAction } from "./actions";
 
 // Types
 export type TeamMemberInfo = {
@@ -27,6 +27,31 @@ export type AssignedRepoInfo = {
     lastAnalyzed: string;
 };
 
+export type TeamAlert = {
+    id: string;
+    team_id: string;
+    title: string;
+    type: string;
+    message: string;
+    is_read: boolean;
+    created_at: string;
+};
+
+export type TeamInviteInfo = {
+    id: string;
+    email: string;
+    role: string;
+    token: string;
+    createdAt: string;
+};
+
+export type TeamActivityInfo = {
+    id: string;
+    type: string;
+    description: string;
+    createdAt: string;
+};
+
 export type TeamData = {
     id: string;
     name: string;
@@ -36,6 +61,10 @@ export type TeamData = {
     members: TeamMemberInfo[];
     repos: AssignedRepoInfo[];
     health: number;
+    healthTrend: number;
+    alerts: TeamAlert[];
+    invites: TeamInviteInfo[];
+    activity: TeamActivityInfo[];
 };
 
 export type WorkspaceRepo = {
@@ -65,9 +94,16 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
     const selectedTeam = teams.find(t => t.id === selectedTeamId) || null;
 
     // Handlers
-    const handleViewTeam = (id: string) => {
+    const handleViewTeam = async (id: string) => {
         setSelectedTeamId(id);
         setActiveView("detail");
+
+        // Asynchronously trigger a risk scan so alerts are fresh next time or populate shortly after
+        try {
+            await scanTeamRiskAction(id);
+        } catch (e) {
+            console.error("Failed to scan team PR risks contextually", e);
+        }
     };
 
     const handleBack = () => {
@@ -93,8 +129,12 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
         if (!selectedTeamId) return;
         setIsSubmitting(true);
         try {
-            await inviteMemberAction(selectedTeamId, formData);
-            setIsInviteOpen(false);
+            const res = await inviteMemberAction(selectedTeamId, formData);
+            if (res && 'error' in res) {
+                alert(res.error);
+            } else {
+                setIsInviteOpen(false);
+            }
         } catch (error) {
             console.error("Failed to invite member", error);
             alert("Failed to invite member");
@@ -142,6 +182,39 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
             console.error("Failed to remove member", error);
             alert("Failed to remove member");
         }
+    };
+
+    const handleRevokeInvite = async (inviteId: string) => {
+        if (!selectedTeamId) return;
+        if (!confirm("Are you sure you want to revoke this invitation?")) return;
+        setIsSubmitting(true);
+        try {
+            await revokeInviteAction(selectedTeamId, inviteId);
+        } catch (error) {
+            console.error("Failed to revoke invite", error);
+            alert("Failed to revoke invite");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    // Derived Permissions
+    const isWorkspaceOwner = selectedTeam?.workspace_id === currentUser.id; // requires passing workspace_id or user id to component
+    const currentUserMemberRole = selectedTeam?.members.find(
+        m => m.name === currentUser.name || m.handle === `@${currentUser.name}` || m.handle === currentUser.name
+    )?.role;
+
+    // We treat 'Admin' role from component props as a master owner for UI purposes since page.tsx mocks it
+    const isCurrentUserOwner = currentUser.role === "Admin" || currentUserMemberRole === "Owner";
+
+    // Tailwnind color map for safelisting dynamic shadows
+    const shadowMap: Record<string, string> = {
+        "bg-blue-500": "shadow-blue-500/30",
+        "bg-purple-500": "shadow-purple-500/30",
+        "bg-emerald-500": "shadow-emerald-500/30",
+        "bg-amber-500": "shadow-amber-500/30",
+        "bg-rose-500": "shadow-rose-500/30",
+        "bg-cyan-500": "shadow-cyan-500/30",
     };
 
     // Helper components
@@ -352,7 +425,7 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
                                 </button>
                                 <div className="flex items-start justify-between">
                                     <div className="flex items-center gap-4">
-                                        <div className={`size-16 rounded-2xl flex items-center justify-center text-white font-bold text-3xl shadow-lg shadow-${selectedTeam.color.replace('bg-', '')}/30 ${selectedTeam.color}`}>
+                                        <div className={`size-16 rounded-2xl flex items-center justify-center text-white font-bold text-3xl shadow-lg ${shadowMap[selectedTeam.color] || "shadow-blue-500/30"} ${selectedTeam.color}`}>
                                             {selectedTeam.name.charAt(0)}
                                         </div>
                                         <div>
@@ -376,9 +449,14 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
                                         <span className="text-sm text-slate-500 font-medium">Avg Health Score</span>
                                         <div className="flex items-center gap-3 bg-white dark:bg-[#1a1a1e] px-4 py-2 rounded-xl border border-slate-200 dark:border-[rgba(255,255,255,0.06)] shadow-sm">
                                             <HealthRing score={selectedTeam.health} size={32} />
-                                            <span className={`text-xl font-bold ${selectedTeam.health > 75 ? 'text-emerald-500' : selectedTeam.health >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                                                {selectedTeam.health || 0}
-                                            </span>
+                                            <div className="flex flex-col">
+                                                <span className={`text-xl font-bold leading-none ${selectedTeam.health > 75 ? 'text-emerald-500' : selectedTeam.health >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
+                                                    {selectedTeam.health || 0}
+                                                </span>
+                                                <span className={`text-[10px] font-bold ${selectedTeam.healthTrend > 0 ? 'text-emerald-500' : selectedTeam.healthTrend < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                                                    {selectedTeam.healthTrend > 0 ? '+' : ''}{selectedTeam.healthTrend}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -405,7 +483,7 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
                                                     </div>
                                                     <div className="flex items-center gap-3">
                                                         <RoleBadge role={member.role} />
-                                                        {member.role !== "Owner" && (
+                                                        {isCurrentUserOwner && member.role !== "Owner" && (
                                                             <button
                                                                 onClick={() => handleRemoveMember(member.id)}
                                                                 className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all focus:outline-none focus:opacity-100 ml-2"
@@ -419,12 +497,59 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
                                             ))}
                                         </div>
 
+                                        {/* Pending Invites */}
+                                        {selectedTeam.invites && selectedTeam.invites.length > 0 && (
+                                            <div className="mb-6 space-y-4">
+                                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pending Invitations</h4>
+                                                {selectedTeam.invites.map((invite) => (
+                                                    <div key={invite.id} className="group flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 h-10 rounded-full border border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center bg-slate-100 dark:bg-[#0a0a0c]">
+                                                                <Mail className="w-4 h-4 text-slate-400" />
+                                                            </div>
+                                                            <div>
+                                                                <p className="font-medium text-sm text-slate-900 dark:text-white leading-tight">{invite.email}</p>
+                                                                <p className="text-[10px] text-slate-500">Invited {new Date(invite.createdAt).toLocaleDateString()}</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <RoleBadge role={invite.role} />
+                                                            {isCurrentUserOwner && (
+                                                                <>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-7 px-2 text-xs text-primary hover:bg-primary/10 ml-2"
+                                                                        onClick={() => {
+                                                                            const url = `${window.location.origin}/invite/${invite.token}`;
+                                                                            navigator.clipboard.writeText(url);
+                                                                            alert("Invite link copied to clipboard!");
+                                                                        }}
+                                                                    >
+                                                                        Copy Link
+                                                                    </Button>
+                                                                    <button
+                                                                        onClick={() => handleRevokeInvite(invite.id)}
+                                                                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all focus:outline-none focus:opacity-100 p-1 rounded-md"
+                                                                        title="Revoke Invite"
+                                                                        disabled={isSubmitting}
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
                                         {isInviteOpen ? (
                                             <form action={handleInviteMember} className="p-4 bg-slate-50 dark:bg-[#151022] rounded-xl border border-slate-200 dark:border-primary/20 space-y-3 animate-in fade-in slide-in-from-top-2">
                                                 <input
-                                                    name="handle"
-                                                    type="text"
-                                                    placeholder="Developer's Github Username"
+                                                    name="email"
+                                                    type="email"
+                                                    placeholder="Developer's Email Address"
                                                     className="w-full bg-white dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                                     required
                                                 />
@@ -472,7 +597,7 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
                                                 setIsSubmitting(false);
                                             }
                                         }} className="flex items-center gap-3 mb-6">
-                                            <select name="repo_id" className="flex-1 bg-slate-50 dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                            <select name="repo_id" required className="flex-1 bg-slate-50 dark:bg-[#0a0a0c] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                                                 <option value="">Map additional repo...</option>
                                                 {workspaceRepos.filter(wr => !selectedTeam.repos.some(tr => tr.id === wr.id)).map(r => (
                                                     <option value={r.id} key={r.id}>{r.name}</option>
@@ -492,8 +617,15 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
                                                                 <Database className="w-5 h-5 text-slate-400 group-hover:text-primary transition-colors" />
                                                                 <span className="font-semibold text-sm">{repo.name}</span>
                                                             </div>
-                                                            <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${repo.health >= 75 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
-                                                                {repo.health}
+                                                            <div className="flex items-center gap-2">
+                                                                {repo.health < 60 && (
+                                                                    <div className="flex items-center gap-1 text-[10px] font-bold text-red-500 bg-red-500/10 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                                                                        <AlertTriangle className="w-3 h-3" /> High Risk
+                                                                    </div>
+                                                                )}
+                                                                <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${repo.health >= 75 ? 'bg-emerald-500/10 text-emerald-500' : repo.health >= 60 ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'}`}>
+                                                                    {repo.health}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center justify-between mt-auto pt-2 text-xs text-slate-500">
@@ -511,21 +643,89 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* Team Alerts Feed */}
+                                    {selectedTeam.alerts && selectedTeam.alerts.length > 0 && (
+                                        <div className="bg-red-50/50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/30 rounded-2xl p-6 shadow-sm">
+                                            <div className="flex items-center justify-between mb-6">
+                                                <h3 className="font-bold text-lg text-red-600 dark:text-red-400 flex items-center gap-2">
+                                                    <Bell className="w-5 h-5 fill-red-500/20" /> Team Alerts
+                                                </h3>
+                                                <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                                                    {selectedTeam.alerts.length} new
+                                                </span>
+                                            </div>
+
+                                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                                {selectedTeam.alerts.map(alert => (
+                                                    <div key={alert.id} className="bg-white dark:bg-[#1a1a1e] border border-red-200 dark:border-red-900/50 rounded-xl p-4 flex gap-4">
+                                                        <div className="flex-shrink-0 mt-1">
+                                                            {alert.type === 'health_drop' ? <AlertTriangle className="w-5 h-5 text-red-500" /> :
+                                                                alert.type === 'pr_risk' ? <GitPullRequest className="w-5 h-5 text-amber-500" /> :
+                                                                    <Monitor className="w-5 h-5 text-violet-500" />}
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-start justify-between gap-4 mb-1">
+                                                                <h4 className="font-bold text-sm text-slate-900 dark:text-white leading-tight">{alert.title}</h4>
+                                                                <span className="text-xs text-slate-400 whitespace-nowrap">
+                                                                    {new Date(alert.created_at).toLocaleDateString()}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-sm text-slate-600 dark:text-slate-400">{alert.message}</p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Team Activity Feed */}
+                                    <div className="bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-[rgba(255,255,255,0.06)] rounded-2xl p-6 shadow-sm">
+                                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
+                                            <CircleDashed className="w-5 h-5 text-primary" /> Activity Feed
+                                        </h3>
+
+                                        {!selectedTeam.activity || selectedTeam.activity.length === 0 ? (
+                                            <div className="text-center py-6 text-slate-500 text-sm">No recent activity.</div>
+                                        ) : (
+                                            <div className="relative pl-4 space-y-6 before:absolute before:inset-y-2 before:left-[11px] before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
+                                                {selectedTeam.activity.map((act, idx) => (
+                                                    <div key={act.id} className="relative pl-6">
+                                                        <div className="absolute left-[-17px] top-1 rounded-full p-1 bg-white dark:bg-[#1a1a1e] border-2 border-slate-200 dark:border-slate-700 z-10">
+                                                            <div className={`w-2 h-2 rounded-full ${act.type === 'repo_analysis' ? 'bg-blue-500' :
+                                                                act.type === 'member_join' ? 'bg-emerald-500' :
+                                                                    act.type === 'member_leave' ? 'bg-slate-500' :
+                                                                        act.type === 'alert_triggered' ? 'bg-amber-500' : 'bg-primary'
+                                                                }`} />
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm text-slate-900 dark:text-slate-200 leading-snug">{act.description}</p>
+                                                            <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-semibold">
+                                                                {new Date(act.createdAt).toLocaleString()}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
                             {/* Danger Zone: Delete Team */}
-                            <div className="mt-12 pt-8 border-t border-red-500/20 flex flex-col items-center justify-center text-center">
-                                <h3 className="text-red-500 font-bold mb-2">Danger Zone</h3>
-                                <p className="text-slate-500 text-sm mb-4">Deleting a team cannot be undone. All member assignments and repository mappings will be removed.</p>
-                                <Button
-                                    variant="outline"
-                                    className="border-red-500/50 text-red-500 hover:bg-red-500/10 hover:border-red-500 transition-colors"
-                                    onClick={() => setIsDeleteOpen(true)}
-                                >
-                                    <Trash2 className="w-4 h-4 mr-2" /> Delete Team
-                                </Button>
-                            </div>
+                            {isCurrentUserOwner && (
+                                <div className="mt-12 pt-8 border-t border-red-500/20 flex flex-col items-center justify-center text-center">
+                                    <h3 className="text-red-500 font-bold mb-2">Danger Zone</h3>
+                                    <p className="text-slate-500 text-sm mb-4">Deleting a team cannot be undone. All member assignments and repository mappings will be removed.</p>
+                                    <Button
+                                        variant="outline"
+                                        className="border-red-500/50 text-red-500 hover:bg-red-500/10 hover:border-red-500 transition-colors"
+                                        onClick={() => setIsDeleteOpen(true)}
+                                    >
+                                        <Trash2 className="w-4 h-4 mr-2" /> Delete Team
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
