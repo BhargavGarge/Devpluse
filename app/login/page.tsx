@@ -15,12 +15,19 @@ export default function LoginPage() {
         setError(null);
 
         const supabase = createClient();
-        const redirectUrl = new URL("/auth/callback", window.location.origin).toString();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const redirectParam = urlParams.get('redirect');
+
+        const redirectUrl = new URL("/auth/callback", window.location.origin);
+        if (redirectParam) {
+            redirectUrl.searchParams.set("next", redirectParam);
+        }
 
         const { error } = await supabase.auth.signInWithOAuth({
             provider: "github",
             options: {
-                redirectTo: redirectUrl,
+                redirectTo: redirectUrl.toString(),
                 scopes: 'repo read:user user:email'
             },
         });

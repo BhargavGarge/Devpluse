@@ -6,8 +6,14 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     const supabase = await createClient();
     const { token } = await params;
 
+    const { createClient: createAdmin } = await import('@supabase/supabase-js');
+    const supabaseAdmin = createAdmin(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     // 1. Validate the token exists in the database
-    const { data: invite, error } = await supabase
+    const { data: invite, error } = await supabaseAdmin
         .from("team_invitations")
         .select("*, teams(name)")
         .eq("token", token)
