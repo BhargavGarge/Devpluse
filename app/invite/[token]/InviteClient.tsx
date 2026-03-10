@@ -30,6 +30,9 @@ export default function InviteClient({
         setError(null);
         try {
             const res = await acceptInviteAction(token);
+            if ('message' in res && res.message) {
+                alert(res.message);
+            }
             if (res.success) {
                 // Force a hard navigation to guarantee server components revalidate
                 window.location.href = `/dashboard/teams`;

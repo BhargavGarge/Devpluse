@@ -313,8 +313,15 @@ export async function acceptInviteAction(token: string) {
 
     if (!user) throw new Error("Unauthorized. Please log in first.");
 
+    // Create admin client for securely validating and deleting the token without RLS
+    const { createClient: createAdmin } = await import('@supabase/supabase-js');
+    const supabaseAdmin = createAdmin(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     // 1. Find the invite
-    const { data: invite, error: fetchError } = await supabase
+    const { data: invite, error: fetchError } = await supabaseAdmin
         .from("team_invitations")
         .select("*")
         .eq("token", token)
@@ -329,19 +336,18 @@ export async function acceptInviteAction(token: string) {
         .from("team_members")
         .select("id")
         .eq("team_id", invite.team_id)
-        .eq("user_id", user.id)
-        .single();
+        .eq("user_id", user.id); // Not using single so it doesn't throw if not found
 
-    if (existingMember) {
+    if (existingMember && existingMember.length > 0) {
         // Just delete the redundant invite
-        await supabase.from("team_invitations").delete().eq("id", invite.id);
-        return { success: true, teamId: invite.team_id, message: "You are already a member of this team." };
+        await supabaseAdmin.from("team_invitations").delete().eq("id", invite.id);
+        return { success: true, teamId: invite.team_id, message: "You are already a member of this team... wait, the backend deleted the redundant invitation!" };
     }
 
     // 3. Insert into team_members
     const githubUsername = user.user_metadata?.user_name || user.email?.split('@')[0] || "User";
 
-    const { error: insertError } = await supabase
+    const { error: insertError } = await supabaseAdmin
         .from("team_members")
         .insert({
             team_id: invite.team_id,
@@ -357,10 +363,10 @@ export async function acceptInviteAction(token: string) {
     }
 
     // 4. Delete the used invitation
-    await supabase.from("team_invitations").delete().eq("id", invite.id);
+    await supabaseAdmin.from("team_invitations").delete().eq("id", invite.id);
 
     // 5. Log joining to team activity
-    await supabase.from("team_activity").insert({
+    await supabaseAdmin.from("team_activity").insert({
         team_id: invite.team_id,
         activity_type: "member_join",
         description: `${githubUsername} joined the team as a ${invite.role}.`
