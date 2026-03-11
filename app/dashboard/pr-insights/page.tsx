@@ -6,6 +6,8 @@ import { LogoutButton } from "@/components/LogoutButton";
 import { Button } from "@/components/ui/button";
 import PRReviewHealth from "@/components/pr-insights/PRReviewHealth";
 import RepoSelectorClient from "@/components/pr-insights/RepoSelectorClient";
+import { AnalyzeButton } from "@/components/AnalyzeButton";
+import { getAccessibleRepoIds } from "@/lib/supabase/queries";
 
 export default async function PRInsightsPage({ searchParams }: { searchParams: Promise<{ repoId?: string }> }) {
     const supabase = await createClient();
@@ -17,12 +19,24 @@ export default async function PRInsightsPage({ searchParams }: { searchParams: P
 
     const { repoId } = await searchParams;
 
-    // Fetch repositories
-    const { data: repositories } = await supabase
-        .from('repositories')
-        .select('*')
-        .eq('user_id', user.id)
+    // Fetch data using team access layer
+    const githubUsername = user.user_metadata?.user_name || user.user_metadata?.preferred_username || user.email?.split('@')[0] || "User";
+    const accessibleRepoIds = await getAccessibleRepoIds(supabase, user.id, githubUsername);
+    const searchIds = accessibleRepoIds.length > 0 ? accessibleRepoIds : ['00000000-0000-0000-0000-000000000000'];
+
+    const { data: snapshots, error } = await supabase
+        .from('repository_metrics_snapshots')
+        .select(`
+            *,
+            repositories (id, name, full_name, visibility)
+        `)
+        .in('repository_id', searchIds)
         .order('created_at', { ascending: false });
+
+    // Extract unique repositories from snapshots for the selector
+    const repositories = snapshots
+        ? Array.from(new Map(snapshots.map(item => [item.repository_id, item.repositories])).values())
+        : [];
 
     // Determine active repository (defaults to the first one if searchParams.repoId is not specified)
     const activeRepoId = repoId || (repositories && repositories.length > 0 ? repositories[0].id : null);

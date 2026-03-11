@@ -54,6 +54,7 @@ export type TeamActivityInfo = {
 
 export type TeamData = {
     id: string;
+    workspace_id?: string;
     name: string;
     color: string;
     description: string;
@@ -75,7 +76,7 @@ export type WorkspaceRepo = {
 interface TeamsClientProps {
     teams: TeamData[];
     workspaceRepos: WorkspaceRepo[];
-    currentUser: { name: string; role: string; avatar: string };
+    currentUser: { id: string; name: string; role: string; avatar: string };
 }
 
 export default function TeamsClient({ teams, workspaceRepos, currentUser }: TeamsClientProps) {
@@ -198,14 +199,34 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
         }
     };
 
+    const handleGenerateReport = async (repoId: string) => {
+        setIsSubmitting(true);
+        try {
+            const res = await fetch('/api/reports/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repository_id: repoId })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to generate report");
+            alert("Repository analyzed and report generated successfully!");
+        } catch (error: any) {
+            console.error("Analysis failed:", error);
+            alert(error.message || "Failed to analyze repository");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     // Derived Permissions
     const isWorkspaceOwner = selectedTeam?.workspace_id === currentUser.id; // requires passing workspace_id or user id to component
     const currentUserMemberRole = selectedTeam?.members.find(
         m => m.name === currentUser.name || m.handle === `@${currentUser.name}` || m.handle === currentUser.name
-    )?.role;
+    )?.role || "Viewer";
 
     // We treat 'Admin' role from component props as a master owner for UI purposes since page.tsx mocks it
     const isCurrentUserOwner = currentUser.role === "Admin" || currentUserMemberRole === "Owner";
+    const canAnalyze = isCurrentUserOwner || currentUserMemberRole === "Reviewer";
 
     // Tailwnind color map for safelisting dynamic shadows
     const shadowMap: Record<string, string> = {
@@ -637,6 +658,20 @@ export default function TeamsClient({ teams, workspaceRepos, currentUser }: Team
                                                                 <Clock className="w-3 h-3" />
                                                                 {repo.lastAnalyzed}
                                                             </div>
+                                                            {canAnalyze && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-6 px-2 text-[10px] font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity bg-primary/10 text-primary hover:bg-primary/20 z-10"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleGenerateReport(repo.id);
+                                                                    }}
+                                                                    disabled={isSubmitting}
+                                                                >
+                                                                    {isSubmitting ? '...' : 'Analyze'}
+                                                                </Button>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 ))}

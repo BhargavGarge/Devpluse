@@ -186,11 +186,16 @@ export default async function TeamsPage() {
         };
     });
 
+    // Safely parse name, handle, role, and grab ID
+    const currentName = user.user_metadata?.user_name || user.user_metadata?.name || user.email?.split('@')[0] || "User";
+    const currentAvatar = user.user_metadata?.avatar_url || "https://github.com/shadcn.png";
+    const currentRole = user.user_metadata?.role || "Admin"; // Fallback to Admin internally since they connected
+
     return (
         <TeamsClient
             teams={teams}
             workspaceRepos={workspaceRepos}
-            currentUser={currentUser}
+            currentUser={{ id: user.id, name: currentName, role: currentRole, avatar: currentAvatar }}
         />
     );
 }

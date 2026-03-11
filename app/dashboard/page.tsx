@@ -5,6 +5,7 @@ import { Activity, LayoutDashboard, Database, PlusCircle, Users, Settings as Set
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/LogoutButton";
+import { getAccessibleRepoIds } from "@/lib/supabase/queries";
 
 export default async function DashboardEmptyState() {
     const supabase = await createClient();
@@ -15,10 +16,16 @@ export default async function DashboardEmptyState() {
     }
 
     // Fetch actual data
+    const githubUsername = user.user_metadata?.user_name || user.user_metadata?.preferred_username || user.email?.split('@')[0] || "User";
+    const accessibleRepoIds = await getAccessibleRepoIds(supabase, user.id, githubUsername);
+
+    // Fallback to a dummy UUID if the array is empty so Supabase doesn't error on empty .in() arrays
+    const searchIds = accessibleRepoIds.length > 0 ? accessibleRepoIds : ['00000000-0000-0000-0000-000000000000'];
+
     const [{ count: repoCount }, { count: reportCount }, { data: recentReports }] = await Promise.all([
-        supabase.from('repositories').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('reports').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('reports').select('*, repositories(name)').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5)
+        supabase.from('repositories').select('*', { count: 'exact', head: true }).in('id', searchIds),
+        supabase.from('reports').select('*', { count: 'exact', head: true }).in('repository_id', searchIds),
+        supabase.from('reports').select('*, repositories(name)').in('repository_id', searchIds).order('created_at', { ascending: false }).limit(5)
     ]);
 
     const hasConnectedRepos = (repoCount || 0) > 0;

@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: "2024-06-20",
+    apiVersion: "2024-06-20" as any,
 });
 
 const supabase = createClient(
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
             billing_interval: interval,
             status: subscription.status,
             current_period_end: new Date(
-                subscription.current_period_end * 1000
+                ((subscription as any).current_period_end || 0) * 1000
             ).toISOString(),
         });
 
