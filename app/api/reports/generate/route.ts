@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { generateRepoReport } from '@/lib/generateReportOpenAI';
+import { getAccessibleRepoIds, getRepoRole } from '@/lib/supabase/queries';
 
 // Helper to calculate the health score based on extracted metrics
 function calculateHealthScore(metrics: any) {
@@ -116,10 +117,24 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'repository_id is required' }, { status: 400 });
         }
 
+        // Validate access through Team Repo Access Layer
+        const githubUsername = user.user_metadata?.user_name || user.user_metadata?.preferred_username || user.email?.split('@')[0] || "User";
+        const accessibleRepoIds = await getAccessibleRepoIds(supabase, user.id, githubUsername);
+
+        if (!accessibleRepoIds.includes(repository_id)) {
+            return NextResponse.json({ error: 'Repository not found or access denied' }, { status: 404 });
+        }
+
+        // Validate Role (Owner or Reviewer required to generate reports)
+        const role = await getRepoRole(supabase, user.id, githubUsername, repository_id);
+        if (role === 'Viewer' || role === 'None') {
+            return NextResponse.json({ error: 'Unauthorized: Viewers cannot trigger analysis' }, { status: 403 });
+        }
+
         // 1. Get the repository details
         const { data: repoInfo, error: repoError } = await supabase
             .from('repositories')
-            .select('full_name, name')
+            .select('full_name, name, user_id')
             .eq('id', repository_id)
             .single();
 
@@ -129,11 +144,11 @@ export async function POST(request: Request) {
 
         const fullName = repoInfo.full_name;
 
-        // 2. Get the GitHub provider token
+        // 2. Get the GitHub provider token from the repo OWNER (so team members can scan without their own tokens)
         const { data: tokenData, error: tokenError } = await supabase
             .from('user_tokens')
             .select('provider_token')
-            .eq('user_id', user.id)
+            .eq('user_id', repoInfo.user_id)
             .single();
 
         if (tokenError || !tokenData?.provider_token) {
@@ -414,7 +429,7 @@ export async function POST(request: Request) {
             const analysisActivities = globalTeamRepos.map(tr => ({
                 team_id: tr.team_id,
                 activity_type: 'repo_analysis',
-                description: `New health report generated for ${repoInfo.name} with a score of ${score}`
+                description: `${githubUsername} analyzed ${repoInfo.name} · score: ${score}`
             }));
             await supabase.from('team_activity').insert(analysisActivities);
         }

@@ -3,6 +3,27 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
+async function isTeamOwner(supabase: any, user: any, teamId: string) {
+    // Check if user is the workspace owner
+    const { data: teamData } = await supabase
+        .from("teams")
+        .select("workspace_id")
+        .eq("id", teamId)
+        .single();
+    if (teamData?.workspace_id === user.id) return true;
+
+    // Check if user has Owner role in team_members
+    const { data: memberData } = await supabase
+        .from("team_members")
+        .select("role")
+        .eq("team_id", teamId)
+        .eq("user_id", user.id)
+        .single();
+    if (memberData?.role === "Owner") return true;
+
+    return false;
+}
+
 export async function createTeamAction(formData: FormData) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -71,6 +92,9 @@ export async function inviteMemberAction(teamId: string, formData: FormData) {
 
     if (!user) throw new Error("Unauthorized");
 
+    const isOwner = await isTeamOwner(supabase, user, teamId);
+    if (!isOwner) throw new Error("Unauthorized: Only Owners can manage team members");
+
     const email = formData.get("email") as string;
     const role = formData.get("role") as string;
 
@@ -114,6 +138,9 @@ export async function assignRepoAction(teamId: string, formData: FormData) {
 
     if (!user) throw new Error("Unauthorized");
 
+    const isOwner = await isTeamOwner(supabase, user, teamId);
+    if (!isOwner) throw new Error("Unauthorized: Only Owners can assign repositories");
+
     const repo_id = formData.get("repo_id") as string;
 
     if (!repo_id) throw new Error("Missing required fields");
@@ -138,6 +165,9 @@ export async function updateTeamAction(teamId: string, formData: FormData) {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) throw new Error("Unauthorized");
+
+    const isOwner = await isTeamOwner(supabase, user, teamId);
+    if (!isOwner) throw new Error("Unauthorized: Only Owners can update team details");
 
     const name = formData.get("name") as string;
     const color = formData.get("color") as string;
@@ -168,6 +198,9 @@ export async function deleteTeamAction(teamId: string) {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) throw new Error("Unauthorized");
+
+    const isOwner = await isTeamOwner(supabase, user, teamId);
+    if (!isOwner) throw new Error("Unauthorized: Only Owners can delete teams");
 
     // 1. Delete associated repos
     const { error: reposError } = await supabase
@@ -212,30 +245,8 @@ export async function removeMemberAction(teamId: string, memberId: string) {
 
     if (!user) throw new Error("Unauthorized");
 
-    // Verify user is owner of the workspace OR owner of the team
-    const { data: teamData } = await supabase
-        .from("teams")
-        .select("workspace_id")
-        .eq("id", teamId)
-        .single();
-
-    let hasPermission = teamData?.workspace_id === user.id;
-
-    if (!hasPermission) {
-        // Check if user is an Owner in the team members list
-        const { data: memberData } = await supabase
-            .from("team_members")
-            .select("role")
-            .eq("team_id", teamId)
-            .eq("user_id", user.id)
-            .single();
-
-        if (memberData?.role === "Owner") {
-            hasPermission = true;
-        }
-    }
-
-    if (!hasPermission) {
+    const isOwner = await isTeamOwner(supabase, user, teamId);
+    if (!isOwner) {
         throw new Error("Unauthorized to remove members");
     }
 
@@ -266,30 +277,8 @@ export async function revokeInviteAction(teamId: string, inviteId: string) {
 
     if (!user) throw new Error("Unauthorized");
 
-    // Verify user is owner of the workspace OR owner of the team
-    const { data: teamData } = await supabase
-        .from("teams")
-        .select("workspace_id")
-        .eq("id", teamId)
-        .single();
-
-    let hasPermission = teamData?.workspace_id === user.id;
-
-    if (!hasPermission) {
-        // Check if user is an Owner in the team members list
-        const { data: memberData } = await supabase
-            .from("team_members")
-            .select("role")
-            .eq("team_id", teamId)
-            .eq("user_id", user.id)
-            .single();
-
-        if (memberData?.role === "Owner") {
-            hasPermission = true;
-        }
-    }
-
-    if (!hasPermission) {
+    const isOwner = await isTeamOwner(supabase, user, teamId);
+    if (!isOwner) {
         throw new Error("Unauthorized to revoke invites");
     }
 

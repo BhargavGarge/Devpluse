@@ -4,6 +4,7 @@ import { Database, PlusCircle, Activity, Lock, Globe, AlertCircle, PlayCircle, E
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { AnalyzeButton } from "@/components/AnalyzeButton";
+import { getAccessibleRepoIds } from "@/lib/supabase/queries";
 
 export default async function ConnectedRepositories() {
     const supabase = await createClient();
@@ -13,19 +14,27 @@ export default async function ConnectedRepositories() {
         redirect("/login");
     }
 
-    // Fetch all connected repositories for this user
+    // Fetch accessible repository IDs
+    const githubUsername = user.user_metadata?.user_name || user.user_metadata?.preferred_username || user.email?.split('@')[0] || "User";
+    const accessibleRepoIds = await getAccessibleRepoIds(supabase, user.id, githubUsername);
+    const searchIds = accessibleRepoIds.length > 0 ? accessibleRepoIds : ['00000000-0000-0000-0000-000000000000'];
+
+    // Fetch all connected repositories the user has access to
     const { data: repositories, error } = await supabase
         .from('repositories')
         .select('*')
-        .eq('user_id', user.id)
+        .in('id', searchIds)
         .order('created_at', { ascending: false });
 
+    // Segregate personal repos vs team repos
+    const personalRepos = repositories?.filter(r => r.user_id === user.id) || [];
+    const teamRepos = repositories?.filter(r => r.user_id !== user.id) || [];
+
     // We'll also want to know the latest report for each repo
-    // To do this simply, we will fetch the reports and map them
     const { data: reports } = await supabase
         .from('reports')
         .select('repository_id, score, created_at')
-        .eq('user_id', user.id)
+        .in('repository_id', searchIds)
         .order('created_at', { ascending: false });
 
     const getLatestReport = (repoId: string) => {
@@ -90,84 +99,111 @@ export default async function ConnectedRepositories() {
                         </Link>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {repositories?.map((repo) => {
-                            const latestReport = getLatestReport(repo.id);
-
-                            return (
-                                <div key={repo.id} className="bg-white dark:bg-[#151022] border border-slate-200 dark:border-[#2d2d35] rounded-2xl p-6 shadow-sm hover:shadow-xl dark:hover:shadow-primary/5 transition-all group flex flex-col">
-                                    <div className="flex justify-between items-start mb-6">
-                                        <div className="flex items-start gap-4">
-                                            <div className="size-12 bg-primary/10 rounded-xl flex items-center justify-center shrink-0 border border-primary/20 group-hover:bg-primary group-hover:border-primary transition-colors">
-                                                <Database className="w-6 h-6 text-primary group-hover:text-white transition-colors" />
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-3 mb-1">
-                                                    <h3 className="text-xl font-bold text-slate-900 dark:text-white truncate max-w-[200px] sm:max-w-[300px]">
-                                                        {repo.name}
-                                                    </h3>
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${repo.visibility === 'private'
-                                                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                                                        : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
-                                                        }`}>
-                                                        {repo.visibility === 'private' ? (
-                                                            <span className="flex items-center gap-1"><Lock className="w-3 h-3" /> Private</span>
-                                                        ) : (
-                                                            <span className="flex items-center gap-1"><Globe className="w-3 h-3" /> Public</span>
-                                                        )}
-                                                    </span>
-                                                </div>
-                                                <p className="text-sm text-slate-500 dark:text-slate-400 font-mono truncate max-w-[250px] sm:max-w-[350px]">
-                                                    {repo.full_name}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Repo Details & Latest Report */}
-                                    <div className="bg-slate-50 dark:bg-[#0a0a0c] rounded-xl p-4 mb-6 flex-1 border border-slate-100 dark:border-[#2d2d35]/50">
-                                        {latestReport ? (
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <p className="text-xs text-slate-500 mb-1">Latest Analysis</p>
-                                                    <p className="font-medium text-slate-900 dark:text-white text-sm">
-                                                        {new Date(latestReport.created_at).toLocaleDateString()}
-                                                    </p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-xs text-slate-500 mb-1">Health Score</p>
-                                                    <p className={`font-bold text-lg ${latestReport.score >= 80 ? 'text-emerald-500' :
-                                                        latestReport.score >= 60 ? 'text-amber-500' : 'text-red-500'
-                                                        }`}>
-                                                        {latestReport.score} / 100
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="h-full flex items-center justify-center text-center p-2">
-                                                <p className="text-sm text-slate-500 flex items-center gap-2">
-                                                    <Activity className="w-4 h-4" />
-                                                    No reports generated yet
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="flex items-center gap-3 pt-4 border-t border-slate-100 dark:border-[#2d2d35] mt-auto">
-                                        <Link href="/dashboard/reports" className="flex-1">
-                                            <Button variant="outline" className="w-full bg-transparent border-slate-300 dark:border-[#2d2d35] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#2d2d35]">
-                                                <Eye className="w-4 h-4 mr-2" />
-                                                View Reports
-                                            </Button>
-                                        </Link>
-                                        <AnalyzeButton repoId={repo.id} />
-                                    </div>
+                    <>
+                        {personalRepos.length > 0 && (
+                            <div className="mb-12">
+                                <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-6">Your Repositories</h2>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {personalRepos.map((repo) => {
+                                        const latestReport = getLatestReport(repo.id);
+                                        return <RepoCard key={repo.id} repo={repo} latestReport={latestReport} isTeam={false} />;
+                                    })}
                                 </div>
-                            );
-                        })}
+                            </div>
+                        )}
+
+                        {teamRepos.length > 0 && (
+                            <div>
+                                <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-6">Team Repositories</h2>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {teamRepos.map((repo) => {
+                                        const latestReport = getLatestReport(repo.id);
+                                        return <RepoCard key={repo.id} repo={repo} latestReport={latestReport} isTeam={true} />;
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
+            </main >
+        </div >
+    );
+}
+
+function RepoCard({ repo, latestReport, isTeam }: { repo: any, latestReport: any, isTeam: boolean }) {
+    return (
+        <div className="bg-white dark:bg-[#151022] border border-slate-200 dark:border-[#2d2d35] rounded-2xl p-6 shadow-sm hover:shadow-xl dark:hover:shadow-primary/5 transition-all group flex flex-col relative overflow-hidden">
+            {isTeam && (
+                <div className="absolute top-0 right-0 bg-primary/10 text-primary text-[10px] font-bold px-3 py-1 rounded-bl-lg">
+                    TEAM REPO
+                </div>
+            )}
+            <div className="flex justify-between items-start mb-6 mt-2">
+                <div className="flex items-start gap-4">
+                    <div className="size-12 bg-primary/10 rounded-xl flex items-center justify-center shrink-0 border border-primary/20 group-hover:bg-primary group-hover:border-primary transition-colors">
+                        <Database className="w-6 h-6 text-primary group-hover:text-white transition-colors" />
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-3 mb-1">
+                            <h3 className="text-xl font-bold text-slate-900 dark:text-white truncate max-w-[200px] sm:max-w-[300px]">
+                                {repo.name}
+                            </h3>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${repo.visibility === 'private'
+                                ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                                : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                                }`}>
+                                {repo.visibility === 'private' ? (
+                                    <span className="flex items-center gap-1"><Lock className="w-3 h-3" /> Private</span>
+                                ) : (
+                                    <span className="flex items-center gap-1"><Globe className="w-3 h-3" /> Public</span>
+                                )}
+                            </span>
+                        </div>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 font-mono truncate max-w-[250px] sm:max-w-[350px]">
+                            {repo.full_name}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Repo Details & Latest Report */}
+            <div className="bg-slate-50 dark:bg-[#0a0a0c] rounded-xl p-4 mb-6 flex-1 border border-slate-100 dark:border-[#2d2d35]/50">
+                {latestReport ? (
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <p className="text-xs text-slate-500 mb-1">Latest Analysis</p>
+                            <p className="font-medium text-slate-900 dark:text-white text-sm">
+                                {new Date(latestReport.created_at).toLocaleDateString()}
+                            </p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-xs text-slate-500 mb-1">Health Score</p>
+                            <p className={`font-bold text-lg ${latestReport.score >= 80 ? 'text-emerald-500' :
+                                latestReport.score >= 60 ? 'text-amber-500' : 'text-red-500'
+                                }`}>
+                                {latestReport.score} / 100
+                            </p>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="h-full flex items-center justify-center text-center p-2">
+                        <p className="text-sm text-slate-500 flex items-center gap-2">
+                            <Activity className="w-4 h-4" />
+                            No reports generated yet
+                        </p>
                     </div>
                 )}
-            </main>
+            </div>
+
+            <div className="flex items-center gap-3 pt-4 border-t border-slate-100 dark:border-[#2d2d35] mt-auto">
+                <Link href="/dashboard/reports" className="flex-1">
+                    <Button variant="outline" className="w-full bg-transparent border-slate-300 dark:border-[#2d2d35] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#2d2d35]">
+                        <Eye className="w-4 h-4 mr-2" />
+                        View Reports
+                    </Button>
+                </Link>
+                <AnalyzeButton repoId={repo.id} />
+            </div>
         </div>
     );
 }

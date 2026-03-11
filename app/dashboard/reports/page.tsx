@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { BarChart2, Calendar, Database, Eye, AlertCircle, Activity, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { getAccessibleRepoIds } from "@/lib/supabase/queries";
 
 export default async function ReportsPage() {
     const supabase = await createClient();
@@ -12,7 +13,11 @@ export default async function ReportsPage() {
         redirect("/login");
     }
 
-    // Fetch all reports, joined with their repository data
+    // Fetch all accessible repository reports
+    const githubUsername = user.user_metadata?.user_name || user.user_metadata?.preferred_username || user.email?.split('@')[0] || "User";
+    const accessibleRepoIds = await getAccessibleRepoIds(supabase, user.id, githubUsername);
+    const searchIds = accessibleRepoIds.length > 0 ? accessibleRepoIds : ['00000000-0000-0000-0000-000000000000'];
+
     const { data: reports, error } = await supabase
         .from('reports')
         .select(`
@@ -26,7 +31,7 @@ export default async function ReportsPage() {
                 full_name
             )
         `)
-        .eq('user_id', user.id)
+        .in('repository_id', searchIds)
         .order('created_at', { ascending: false });
 
     return (
@@ -98,8 +103,8 @@ export default async function ReportsPage() {
                                                     <Database className="w-4 h-4 text-primary" />
                                                 </div>
                                                 <div>
-                                                    <span className="font-bold text-slate-900 dark:text-white block">{report.repositories?.name}</span>
-                                                    <span className="text-xs text-slate-500 font-mono">{report.repositories?.full_name}</span>
+                                                    <span className="font-bold text-slate-900 dark:text-white block">{(report.repositories as any)?.name}</span>
+                                                    <span className="text-xs text-slate-500 font-mono">{(report.repositories as any)?.full_name}</span>
                                                 </div>
                                             </div>
                                         </td>
@@ -117,7 +122,7 @@ export default async function ReportsPage() {
                                         <td className="px-6 py-5">
                                             <div className="flex items-center gap-2">
                                                 <div className={`text-lg font-bold flex items-center gap-1.5 ${report.score >= 80 ? 'text-emerald-500' :
-                                                        report.score >= 60 ? 'text-amber-500' : 'text-red-500'
+                                                    report.score >= 60 ? 'text-amber-500' : 'text-red-500'
                                                     }`}>
                                                     <Activity className="w-4 h-4" />
                                                     {report.score} <span className="text-xs font-normal text-slate-400">/ 100</span>

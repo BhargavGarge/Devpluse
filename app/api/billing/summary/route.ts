@@ -54,7 +54,7 @@ export async function GET() {
         );
 
         const invoices = await stripe.invoices.list({
-            customer: subscription.stripe_customer_id as string,
+            customer: subscription.stripe_customer_id ? String(subscription.stripe_customer_id) : undefined,
             limit: 5,
         });
 
@@ -62,8 +62,8 @@ export async function GET() {
             plan: subscription.plan,
             status: stripeSub.status,
             // @ts-ignore items.data[0] is generally safe here if it's an active sub
-            billingInterval: stripeSub.items.data[0]?.price.recurring?.interval,
-            currentPeriodEnd: stripeSub.current_period_end,
+            billingInterval: (stripeSub as any).items?.data[0]?.price?.recurring?.interval,
+            currentPeriodEnd: (stripeSub as any).current_period_end,
             card:
                 stripeSub.default_payment_method &&
                     typeof stripeSub.default_payment_method !== "string" &&
